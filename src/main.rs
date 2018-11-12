@@ -10,7 +10,9 @@ use std::fs;
 use std::env;
 use std::path;
 use std::io::prelude::*;
+use std::collections::HashMap;
 
+/*
 #[derive(Deserialize,Debug)]
 struct Files {
     subfiles: Vec<String>,
@@ -87,10 +89,80 @@ struct filenames {
     files: Vec<String>
 }
 
-fn new_book(info: Path<(String, String)>) -> Result<Json<filenames>> {
-    let book = Folders::new(&info.1);
-    book.mkdirs();
-    Ok(Json(filenames {files: vec!["file1".to_string(), "file2".to_string()]}))
+*/
+
+#[derive(Deserialize)]
+struct NewBook {
+    location: String,
+    name: String,
+    genre: String
+}
+
+impl NewBook {
+    fn mkdirs(&self) -> Result<()> {
+        //
+        // TODO: check genre and build vec accordingly
+        //
+        let folders = vec!["chapter1", "chapter2", "chapter3"];
+        let files = vec!["chapter1/section1", "chapter2/section2", "chapter3/section3"];
+        env::set_current_dir(path::Path::new(&self.location)).unwrap();
+        fs::create_dir_all(&self.name).unwrap();
+        env::set_current_dir(path::Path::new(&self.name)).unwrap();
+        for folder in folders.iter() {
+            fs::create_dir_all(folder)?;
+        }
+        for file in files.iter() {
+            fs::File::create(file)?;
+        }
+        Ok(())
+    }
+
+    // may be impl new should be made for Files struct
+    fn create_tree(&self) -> Files {
+        let mut tree = Files {book_tree: HashMap::new()};
+
+        let book = self.create_structs(&self.name, "/booktest", true, true);
+        let chap1 = self.create_structs("chap1", "/booktest/chap1", true, false);
+        let chap2 = self.create_structs("chap2", "/booktest/chap2", true, false);
+        let chap3 = self.create_structs("chap3", "/booktest/chap3", true, true);
+        let sec1 = self.create_structs("sec1", "/booktest/chap3/sec1", true, false);
+
+        tree.book_tree.insert(book.name.clone(), book);
+        tree.book_tree.insert(chap1.name.clone(), chap1);
+        tree.book_tree.insert(chap2.name.clone(), chap2);
+        tree.book_tree.insert(chap3.name.clone(), chap3);
+        tree.book_tree.insert(sec1.name.clone(), sec1);
+        tree
+    }
+
+    // may be impl new should be made for File struct
+    fn create_structs(&self, name: &str, path: &str, visible: bool, folder: bool) -> File {
+        File {name: name.to_owned(), full_path: path.to_owned(), is_visible: visible, is_folder: folder}
+    }
+}
+
+#[derive(Serialize,Debug)]
+#[serde(rename_all = "camelCase")]
+struct File {
+    name: String,
+    full_path: String,
+    is_visible: bool,
+    is_folder: bool,
+}
+
+#[derive(Serialize,Debug)]
+#[serde(rename_all = "camelCase")]
+struct Files {
+    // holds a dict of all files of the book
+    book_tree: HashMap<String, File>
+}
+
+fn new_book(info: Json<NewBook>) -> Result<String> {
+    info.mkdirs()?;
+    let tree = info.create_tree();
+    let ser = serde_json::to_string(&tree)?;
+    println!("{:?}", ser);
+    Ok(ser)
 }
 
 fn save_book(info: Json<Vec<Save>>) -> Result<String> {
@@ -114,12 +186,13 @@ struct Save {
 }
 
 fn save(info: Json<Save>) -> Result<String> {
+    println!("{:?}", info);
     let mut f = fs::File::create(&info.file).unwrap();
     f.write_all(&info.content.as_bytes()).unwrap();
-    println!("{:?}", info);
     Ok(format!("save file"))
 }
 
+// websockets might be a better idea
 fn main() {
     std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
@@ -130,7 +203,7 @@ fn main() {
                 .allowed_origin("http://localhost:9080")
                 .supports_credentials()
                 .max_age(3600)
-                .resource("/newbook/{genre}/{bookname}", |r| r.method(http::Method::POST).with(new_book))
+                .resource("/newbook", |r| r.method(http::Method::POST).with(new_book))
                 .resource("/savebook", |r| r.method(http::Method::POST).with(save_book))
                 .resource("/save", |r| r.method(http::Method::POST).with(save))
                 .resource("/delete", |r| r.method(http::Method::POST).with(delete_file))
