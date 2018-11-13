@@ -12,97 +12,15 @@ use std::path;
 use std::io::prelude::*;
 use std::collections::HashMap;
 
-/*
-#[derive(Deserialize,Debug)]
-struct Files {
-    subfiles: Vec<String>,
-    subfolders: Vec<String>
-}
-
-#[derive(Deserialize,Debug)]
-struct Folders {
-    name: String,
-    subfolders: Option<Vec<Box<Folders>>>
-}
-
-impl Folders {
-    fn new(name: &str) -> Self {
-
-        let data = format!(r#"{{
-            "name": "{}",
-            "subfolders": [
-                {{
-                    "name": "chapter1",
-                    "subfolders": [
-                        {{
-                        "name": "scene1"
-                        }}
-                    ]
-                }},
-                {{
-                    "name": "chapter2",
-                    "subfolders": [
-                        {{
-                        "name": "scene1",
-                        "subfolders": [
-                            {{
-                            "name": "section1"
-                            }}
-                        ]
-                        }}
-                    ]
-                }},
-                {{
-                    "name": "chapter3",
-                    "subfolders": [
-                        {{
-                        "name": "scene1"
-                        }}
-                    ]
-                }}
-            ]
-        }}"#, name);
-
-        serde_json::from_str(&data).unwrap()
-    }
-
-    fn mkdirs(&self) {
-        match &self.subfolders {
-            Some(subfolders) => {
-                fs::create_dir_all(&self.name).unwrap();
-                let path = path::Path::new(&self.name);
-                env::set_current_dir(&path).unwrap();
-                for subs in subfolders.iter() {
-                    subs.mkdirs();
-                }
-                env::set_current_dir(path::Path::new("..")).unwrap();
-            },
-            None => {
-                fs::create_dir_all(&self.name).unwrap();
-            }
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct filenames {
-    files: Vec<String>
-}
-
-*/
-
 #[derive(Deserialize)]
 struct NewBook {
     location: String,
     name: String,
-    genre: String
+    genre: String,
 }
 
 impl NewBook {
     fn mkdirs(&self) -> Result<()> {
-        //
-        // TODO: check genre and build vec accordingly
-        //
         let folders = vec!["chapter1", "chapter2", "chapter3"];
         let files = vec!["chapter1/section1", "chapter2/section2", "chapter3/section3"];
         env::set_current_dir(path::Path::new(&self.location)).unwrap();
@@ -117,27 +35,23 @@ impl NewBook {
         Ok(())
     }
 
-    // may be impl new should be made for Files struct
-    fn create_tree(&self) -> Files {
-        let mut tree = Files {book_tree: HashMap::new()};
+    // check genre here
+    fn create_tree(&self) -> HashMap<String, File> {
+        let mut tree = HashMap::new();
 
-        let book = self.create_structs(&self.name, "/booktest", true, true);
-        let chap1 = self.create_structs("chap1", "/booktest/chap1", true, false);
-        let chap2 = self.create_structs("chap2", "/booktest/chap2", true, false);
-        let chap3 = self.create_structs("chap3", "/booktest/chap3", true, true);
-        let sec1 = self.create_structs("sec1", "/booktest/chap3/sec1", true, false);
+        let book = File::new(&self.name, format!("/{}", &self.name), true, true);
+        let chap1 = File::new("chap1", format!("/{}/chap1", &self.name), true, false);
+        let chap2 = File::new("chap2", format!("/{}/chap2", &self.name), true, false);
+        let chap3 = File::new("chap3", format!("/{}/chap3", &self.name), true, true);
+        let sec1 = File::new("sec1",  format!("/{}/chap3/sec1", &self.name), true, false);
 
-        tree.book_tree.insert(book.name.clone(), book);
-        tree.book_tree.insert(chap1.name.clone(), chap1);
-        tree.book_tree.insert(chap2.name.clone(), chap2);
-        tree.book_tree.insert(chap3.name.clone(), chap3);
-        tree.book_tree.insert(sec1.name.clone(), sec1);
+        tree.insert(book.name.clone(), book);
+        tree.insert(chap1.name.clone(), chap1);
+        tree.insert(chap2.name.clone(), chap2);
+        tree.insert(chap3.name.clone(), chap3);
+        tree.insert(sec1.name.clone(), sec1);
+
         tree
-    }
-
-    // may be impl new should be made for File struct
-    fn create_structs(&self, name: &str, path: &str, visible: bool, folder: bool) -> File {
-        File {name: name.to_owned(), full_path: path.to_owned(), is_visible: visible, is_folder: folder}
     }
 }
 
@@ -150,19 +64,47 @@ struct File {
     is_folder: bool,
 }
 
-#[derive(Serialize,Debug)]
-#[serde(rename_all = "camelCase")]
-struct Files {
-    // holds a dict of all files of the book
-    book_tree: HashMap<String, File>
+impl File {
+    fn new(name: &str, path: String, visible: bool, folder: bool) -> Self {
+        File {name: name.to_owned(), full_path: path, is_visible: visible, is_folder: folder}
+    }
 }
 
 fn new_book(info: Json<NewBook>) -> Result<String> {
     info.mkdirs()?;
     let tree = info.create_tree();
     let ser = serde_json::to_string(&tree)?;
+
+    // find a better way to do this
+    env::set_current_dir(path::Path::new(&info.location))?;
+    env::set_current_dir(path::Path::new(&info.name))?;
+
+    let cur_dir = env::current_dir()?;
+    println!("{}", cur_dir.display());
+
+    let mut file = fs::File::create("foo.json")?;
+    file.write_all(&ser.as_bytes())?;
     println!("{:?}", ser);
+
     Ok(ser)
+}
+
+#[derive(Serialize,Deserialize,Debug)]
+struct Openbook {
+    location: String
+}
+
+fn open_book(info: Json<Openbook>) -> Result<String> {
+    // check if json file exists in folder
+    // if not then return a not a book error
+    // otherwise return the book tree from the file
+
+    env::set_current_dir(path::Path::new(&info.location))?;
+    let mut file = fs::File::open("foo.json")?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+    println!("{}", content);
+    Ok(content)
 }
 
 fn save_book(info: Json<Vec<Save>>) -> Result<String> {
@@ -204,6 +146,7 @@ fn main() {
                 .supports_credentials()
                 .max_age(3600)
                 .resource("/newbook", |r| r.method(http::Method::POST).with(new_book))
+                .resource("/openbook", |r| r.method(http::Method::POST).with(open_book))
                 .resource("/savebook", |r| r.method(http::Method::POST).with(save_book))
                 .resource("/save", |r| r.method(http::Method::POST).with(save))
                 .resource("/delete", |r| r.method(http::Method::POST).with(delete_file))
