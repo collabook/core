@@ -20,36 +20,45 @@ struct NewBook {
 }
 
 impl NewBook {
-    fn mkdirs(&self) -> Result<()> {
-        let folders = vec!["chapter1", "chapter2", "chapter3"];
-        let files = vec!["chapter1/section1", "chapter2/section2", "chapter3/section3"];
+    fn mkdirs(&self, tree: &HashMap<u32, File>) -> Result<()> {
+
         env::set_current_dir(path::Path::new(&self.location)).unwrap();
-        fs::create_dir_all(&self.name).unwrap();
-        env::set_current_dir(path::Path::new(&self.name)).unwrap();
-        for folder in folders.iter() {
-            fs::create_dir_all(folder)?;
+
+        // problem may occur if file creation is tried before its parent folder
+        // although this problem is solved i dont like the solution
+        for  (_id, file) in tree {
+            println!("{}", &file.full_path);
+            if file.is_folder == true {
+                fs::create_dir_all(&file.full_path)?;
+            }
         }
-        for file in files.iter() {
-            fs::File::create(file)?;
+
+        for (_id, file) in tree {
+            if file.is_folder == false {
+                fs::File::create(&file.full_path)?;
+            }
         }
+
         Ok(())
     }
 
     // check genre here
-    fn create_tree(&self) -> HashMap<String, File> {
+    fn create_tree(&self) -> HashMap<u32, File> {
         let mut tree = HashMap::new();
 
-        let book = File::new(&self.name, format!("/{}", &self.name), true, true);
-        let chap1 = File::new("chap1", format!("/{}/chap1", &self.name), true, false);
-        let chap2 = File::new("chap2", format!("/{}/chap2", &self.name), true, false);
-        let chap3 = File::new("chap3", format!("/{}/chap3", &self.name), true, true);
-        let sec1 = File::new("sec1",  format!("/{}/chap3/sec1", &self.name), true, false);
+        // check pathbuff might be useful
+        // come up with better way to build these structs
+        let book = File::new(1, &self.name, format!("{}", &self.name), 0, true, true);
+        let chap1 = File::new(2, "chap1", format!("{}/chap1", &self.name), 1, true, false);
+        let chap2 = File::new(3, "chap2", format!("{}/chap2", &self.name), 1, true, false);
+        let chap3 = File::new(4, "chap3", format!("{}/chap3", &self.name), 1, true, true);
+        let sec1 = File::new(5,  "sec1", format!("{}/chap3/sec1", &self.name), 4, true, false);
 
-        tree.insert(book.name.clone(), book);
-        tree.insert(chap1.name.clone(), chap1);
-        tree.insert(chap2.name.clone(), chap2);
-        tree.insert(chap3.name.clone(), chap3);
-        tree.insert(sec1.name.clone(), sec1);
+        tree.insert(book.id, book);
+        tree.insert(chap1.id, chap1);
+        tree.insert(chap2.id, chap2);
+        tree.insert(chap3.id, chap3);
+        tree.insert(sec1.id, sec1);
 
         tree
     }
@@ -58,21 +67,26 @@ impl NewBook {
 #[derive(Serialize,Debug)]
 #[serde(rename_all = "camelCase")]
 struct File {
+    id: u32,
     name: String,
     full_path: String,
+    parent: u32,
     is_visible: bool,
     is_folder: bool,
+    // content is missing
+    // storing content in tree.json wont do
 }
 
 impl File {
-    fn new(name: &str, path: String, visible: bool, folder: bool) -> Self {
-        File {name: name.to_owned(), full_path: path, is_visible: visible, is_folder: folder}
+    fn new(id: u32, name: &str, path: String, parent: u32, visible: bool, folder: bool) -> Self {
+        File {id: id, name: name.to_owned(), full_path: path, parent: parent, is_visible: visible, is_folder: folder}
     }
 }
 
 fn new_book(info: Json<NewBook>) -> Result<String> {
-    info.mkdirs()?;
+
     let tree = info.create_tree();
+    info.mkdirs(&tree)?;
     let ser = serde_json::to_string(&tree)?;
 
     // find a better way to do this
@@ -82,7 +96,7 @@ fn new_book(info: Json<NewBook>) -> Result<String> {
     let cur_dir = env::current_dir()?;
     println!("{}", cur_dir.display());
 
-    let mut file = fs::File::create("foo.json")?;
+    let mut file = fs::File::create("tree.json")?;
     file.write_all(&ser.as_bytes())?;
     println!("{:?}", ser);
 
@@ -95,16 +109,26 @@ struct Openbook {
 }
 
 fn open_book(info: Json<Openbook>) -> Result<String> {
-    // check if json file exists in folder
-    // if not then return a not a book error
-    // otherwise return the book tree from the file
 
     env::set_current_dir(path::Path::new(&info.location))?;
-    let mut file = fs::File::open("foo.json")?;
-    let mut content = String::new();
-    file.read_to_string(&mut content)?;
-    println!("{}", content);
-    Ok(content)
+    let file = fs::File::open("tree.json");
+    match file {
+        Ok(mut f) => {
+            let mut content = String::new();
+            f.read_to_string(&mut content)?;
+            println!("{}", content);
+            Ok(content)
+        },
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // proper resp status must be set
+            Ok(format!("Not a book"))
+        },
+        Err(_) => {
+            // proper resp status must be set
+            Ok(format!("Unknown error"))
+        },
+    }
+
 }
 
 fn save_book(info: Json<Vec<Save>>) -> Result<String> {
