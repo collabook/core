@@ -16,7 +16,7 @@ use std::collections::HashMap;
 struct NewBook {
     location: String,
     name: String,
-    genre: String,
+    _genre: String,
 }
 
 impl NewBook {
@@ -64,7 +64,7 @@ impl NewBook {
     }
 }
 
-#[derive(Serialize,Debug)]
+#[derive(Serialize,Deserialize,Debug)]
 #[serde(rename_all = "camelCase")]
 struct File {
     id: u32,
@@ -83,25 +83,53 @@ impl File {
     }
 }
 
+// should also create an empty hashmap for content
 fn new_book(info: Json<NewBook>) -> Result<String> {
 
     let tree = info.create_tree();
     info.mkdirs(&tree)?;
-    let ser = serde_json::to_string(&tree)?;
+    let ser_tree = serde_json::to_string(&tree)?;
 
     // find a better way to do this
-    env::set_current_dir(path::Path::new(&info.location))?;
-    env::set_current_dir(path::Path::new(&info.name))?;
+    //env::set_current_dir(path::Path::new(&info.location))?;
+    //env::set_current_dir(path::Path::new(&info.name))?;
+    //
+    //this might be the better way haven't tested whether this works or not
+    let mut path = path::PathBuf::from(&info.location);
+    path.push(&info.location);
+    path.push("tree.json");
 
-    let cur_dir = env::current_dir()?;
-    println!("{}", cur_dir.display());
+    let mut file = fs::File::create(path)?;
+    file.write_all(&ser_tree.as_bytes())?;
+    println!("{:?}", ser_tree);
 
-    let mut file = fs::File::create("tree.json")?;
-    file.write_all(&ser.as_bytes())?;
-    println!("{:?}", ser);
-
-    Ok(ser)
+    Ok(ser_tree)
 }
+
+// create a hashmap of content and fileid
+fn read_content(tree: &HashMap<u32, File>, loc: &str) -> HashMap<u32, String> {
+    let mut content = HashMap::new();
+    for (id, file) in tree {
+        if file.is_folder == false  {
+            let mut buf = String::new();
+
+            let mut path = path::PathBuf::from(loc);
+            path.push(&file.full_path);
+            let mut f = fs::File::open(&path).unwrap();
+            f.read_to_string(&mut buf).unwrap();
+            content.insert(id.clone(), buf);
+        }
+    }
+    content
+}
+
+#[derive(Serialize,Debug)]
+struct OpenBookResponse {
+    tree: HashMap<u32, File>,
+    content: HashMap<u32, String>
+}
+
+
 
 #[derive(Serialize,Deserialize,Debug)]
 struct Openbook {
@@ -110,14 +138,21 @@ struct Openbook {
 
 fn open_book(info: Json<Openbook>) -> Result<String> {
 
-    env::set_current_dir(path::Path::new(&info.location))?;
-    let file = fs::File::open("tree.json");
+    // env::set_current_dir(path::Path::new(&info.location))?;
+    let mut path = path::PathBuf::from(&info.location);
+    path.push("tree.json");
+    let file = fs::File::open(&path);
     match file {
-        Ok(mut f) => {
-            let mut content = String::new();
-            f.read_to_string(&mut content)?;
-            println!("{}", content);
-            Ok(content)
+        Ok(f) => {
+            let tree: HashMap<u32, File> = serde_json::from_reader(f)?;
+            println!("{:?}", tree);
+
+            path.pop(); // pop tree.json
+            path.pop(); // pop bookname as it is already included in fullpath
+            let content = read_content(&tree, path.to_str().unwrap());
+            let openbook_response = OpenBookResponse {tree, content};
+
+            Ok(serde_json::to_string(&openbook_response)?)
         },
         Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
             // proper resp status must be set
