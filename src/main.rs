@@ -7,7 +7,6 @@ extern crate serde_json;
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App, Json, Path, Result};
 use std::fs;
-use std::env;
 use std::path;
 use std::io::prelude::*;
 use std::collections::HashMap;
@@ -16,32 +15,27 @@ use std::collections::HashMap;
 struct NewBook {
     location: String,
     name: String,
-    _genre: String,
+    genre: String,
+}
+
+fn mkdirs(location: &str, tree: &HashMap<u32, File>) -> Result<()> {
+
+    for  (_id, file) in tree {
+        if file.is_folder == true {
+            fs::create_dir_all(format!("{}/{}", location, file.full_path))?;
+        }
+    }
+
+    for (_id, file) in tree {
+        if file.is_folder == false {
+            fs::File::create(format!("{}/{}", location, file.full_path))?;
+        }
+    }
+
+    Ok(())
 }
 
 impl NewBook {
-    fn mkdirs(&self, tree: &HashMap<u32, File>) -> Result<()> {
-
-        env::set_current_dir(path::Path::new(&self.location)).unwrap();
-
-        // problem may occur if file creation is tried before its parent folder
-        // although this problem is solved i dont like the solution
-        for  (_id, file) in tree {
-            println!("{}", &file.full_path);
-            if file.is_folder == true {
-                fs::create_dir_all(&file.full_path)?;
-            }
-        }
-
-        for (_id, file) in tree {
-            if file.is_folder == false {
-                fs::File::create(&file.full_path)?;
-            }
-        }
-
-        Ok(())
-    }
-
     // check genre here
     fn create_tree(&self) -> HashMap<u32, File> {
         let mut tree = HashMap::new();
@@ -73,8 +67,6 @@ struct File {
     parent: u32,
     is_visible: bool,
     is_folder: bool,
-    // content is missing
-    // storing content in tree.json wont do
 }
 
 impl File {
@@ -87,23 +79,25 @@ impl File {
 fn new_book(info: Json<NewBook>) -> Result<String> {
 
     let tree = info.create_tree();
-    info.mkdirs(&tree)?;
+    // this moved function is not yet tested
+    mkdirs(&info.location, &tree)?;
     let ser_tree = serde_json::to_string(&tree)?;
 
-    // find a better way to do this
-    //env::set_current_dir(path::Path::new(&info.location))?;
-    //env::set_current_dir(path::Path::new(&info.name))?;
-    //
-    //this might be the better way haven't tested whether this works or not
     let mut path = path::PathBuf::from(&info.location);
-    path.push(&info.location);
+    path.push(&info.name);
     path.push("tree.json");
 
-    let mut file = fs::File::create(path)?;
+    let mut file = fs::File::create(&path)?;
     file.write_all(&ser_tree.as_bytes())?;
-    println!("{:?}", ser_tree);
 
-    Ok(ser_tree)
+    // create contents tree
+    //
+    path.pop(); // remove tree.json
+    path.pop(); // filename is part of full path
+    let content = read_content(&tree, &path.to_str().unwrap());
+
+    let openbook_response = OpenBookResponse {tree: tree, content: content};
+    Ok(serde_json::to_string(&openbook_response)?)
 }
 
 // create a hashmap of content and fileid
@@ -123,6 +117,7 @@ fn read_content(tree: &HashMap<u32, File>, loc: &str) -> HashMap<u32, String> {
     content
 }
 
+// might have to rename this as it is used in savebook as well
 #[derive(Serialize,Debug)]
 struct OpenBookResponse {
     tree: HashMap<u32, File>,
@@ -138,14 +133,12 @@ struct Openbook {
 
 fn open_book(info: Json<Openbook>) -> Result<String> {
 
-    // env::set_current_dir(path::Path::new(&info.location))?;
     let mut path = path::PathBuf::from(&info.location);
     path.push("tree.json");
     let file = fs::File::open(&path);
     match file {
         Ok(f) => {
             let tree: HashMap<u32, File> = serde_json::from_reader(f)?;
-            println!("{:?}", tree);
 
             path.pop(); // pop tree.json
             path.pop(); // pop bookname as it is already included in fullpath
@@ -166,13 +159,38 @@ fn open_book(info: Json<Openbook>) -> Result<String> {
 
 }
 
-fn save_book(info: Json<Vec<Save>>) -> Result<String> {
-    for file in info.iter() {
-        let mut f = fs::File::create(&file.file).unwrap();
-        f.write_all(&file.content.as_bytes()).unwrap();
-    }
-    println!("{:?}", info);
+#[derive(Serialize,Deserialize,Debug)]
+struct SaveBook {
+    location: String,
+    tree: HashMap<u32, File>,
+    content: HashMap<u32, String>
+}
+
+fn save_book(info: Json<SaveBook>) -> Result<String> {
+    // combining mkdirs and write_content might be a good idea
+    let mut path = path::PathBuf::from(&info.location);
+    path.pop(); // remove filename
+    mkdirs(path.to_str().unwrap(), &info.tree)?;
+    write_content(&path, &info.tree, &info.content)?;
+
     Ok(format!("saved book"))
+}
+
+fn write_content(loc: &path::Path, tree: &HashMap<u32, File>, content: &HashMap<u32, String>) -> Result<()> {
+    for (id, file) in tree.iter() {
+        match content.get(id) {
+            Some(current_content) => {
+                // loc is path push pop will work
+                let location = format!("{}/{}", loc.display(), file.full_path);
+                let mut f = fs::File::create(location)?;
+                f.write_all(current_content.as_bytes())?;
+            },
+            None => {
+                //return error or do nothing not sure
+            }
+        }
+    }
+    Ok(())
 }
 
 fn delete_file(info: Path<(String,)>) -> Result<String> {
@@ -187,7 +205,6 @@ struct Save {
 }
 
 fn save(info: Json<Save>) -> Result<String> {
-    println!("{:?}", info);
     let mut f = fs::File::create(&info.file).unwrap();
     f.write_all(&info.content.as_bytes()).unwrap();
     Ok(format!("save file"))
