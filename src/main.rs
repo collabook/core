@@ -11,6 +11,7 @@ use std::path;
 use std::io::prelude::*;
 use std::collections::HashMap;
 
+#[allow(unused)]
 #[derive(Deserialize)]
 struct NewBook {
     location: String,
@@ -75,6 +76,22 @@ impl File {
     }
 }
 
+#[derive(Serialize,Deserialize,Debug)]
+struct Synopsis {
+    id: u32,
+    content: String
+}
+
+impl Synopsis {
+    fn new(tree: &HashMap<u32,File>) -> Result<Vec<Self>> {
+        let mut vec_synopsis = Vec::new();
+        for id in tree.keys() {
+            vec_synopsis.push(Synopsis {id: id.clone(), content: format!("some content")});
+        }
+        Ok(vec_synopsis)
+    }
+}
+
 // should also create an empty hashmap for content
 fn new_book(info: Json<NewBook>) -> Result<String> {
 
@@ -90,13 +107,19 @@ fn new_book(info: Json<NewBook>) -> Result<String> {
     let mut file = fs::File::create(&path)?;
     file.write_all(&ser_tree.as_bytes())?;
 
-    // create contents tree
-    //
     path.pop(); // remove tree.json
-    path.pop(); // filename is part of full path
+    let synopsis = Synopsis::new(&tree)?;
+    let ser_synopsis = serde_json::to_string(&synopsis)?;
+    path.push("synopsis.json");
+    let mut file = fs::File::create(&path)?;
+    file.write_all(ser_synopsis.as_bytes())?;
+
+    // create contents tree
+    path.pop(); //remove synopsis.json
+    path.pop(); // book rootdir is part of full path inside the File struct
     let content = read_content(&tree, &path.to_str().unwrap());
 
-    let openbook_response = OpenBookResponse {tree: tree, content: content};
+    let openbook_response = OpenBookResponse {tree: tree, content: content, synopsis: synopsis};
     Ok(serde_json::to_string(&openbook_response)?)
 }
 
@@ -121,7 +144,8 @@ fn read_content(tree: &HashMap<u32, File>, loc: &str) -> HashMap<u32, String> {
 #[derive(Serialize,Debug)]
 struct OpenBookResponse {
     tree: HashMap<u32, File>,
-    content: HashMap<u32, String>
+    content: HashMap<u32, String>,
+    synopsis: Vec<Synopsis>
 }
 
 
@@ -141,9 +165,15 @@ fn open_book(info: Json<Openbook>) -> Result<String> {
             let tree: HashMap<u32, File> = serde_json::from_reader(f)?;
 
             path.pop(); // pop tree.json
-            path.pop(); // pop bookname as it is already included in fullpath
+
+            path.push("synopsis.json");
+            let synopsis_file = fs::File::open(&path)?;
+            let synopsis = serde_json::from_reader(synopsis_file)?;
+
+            path.pop(); // pop synopsis.json
+            path.pop(); // pop book root dir as it is already included in fullpath of File struct
             let content = read_content(&tree, path.to_str().unwrap());
-            let openbook_response = OpenBookResponse {tree, content};
+            let openbook_response = OpenBookResponse {tree, content, synopsis};
 
             Ok(serde_json::to_string(&openbook_response)?)
         },
