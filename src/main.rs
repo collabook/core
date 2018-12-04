@@ -76,6 +76,7 @@ impl File {
     }
 }
 
+// should also have a title
 #[derive(Serialize,Deserialize,Debug)]
 struct Synopsis {
     id: u32,
@@ -86,7 +87,7 @@ impl Synopsis {
     fn new(tree: &HashMap<u32,File>) -> Result<Vec<Self>> {
         let mut vec_synopsis = Vec::new();
         for id in tree.keys() {
-            vec_synopsis.push(Synopsis {id: id.clone(), content: format!("some content")});
+            vec_synopsis.push(Synopsis {id: id.clone(), content: format!("")});
         }
         Ok(vec_synopsis)
     }
@@ -108,6 +109,7 @@ fn new_book(info: Json<NewBook>) -> Result<String> {
     file.write_all(&ser_tree.as_bytes())?;
 
     path.pop(); // remove tree.json
+    // TODO: should be called ::from_tree
     let synopsis = Synopsis::new(&tree)?;
     let ser_synopsis = serde_json::to_string(&synopsis)?;
     path.push("synopsis.json");
@@ -153,6 +155,23 @@ struct OpenBookResponse {
 #[derive(Serialize,Deserialize,Debug)]
 struct Openbook {
     location: String
+}
+
+#[derive(Serialize,Deserialize,Debug)]
+struct SaveSynopsis {
+    location: String,
+    synopsis: Vec<Synopsis>
+}
+
+fn save_synopsis(info: Json<SaveSynopsis>) -> Result<String> {
+    println!("{:?}", info.location);
+    let mut path = path::PathBuf::from(&info.location);
+
+    path.push("synopsis.json");
+    let  mut f = fs::File::create(&path)?;
+    let ser_synopsis = serde_json::to_string(&info.synopsis)?;
+    f.write(ser_synopsis.as_bytes())?;
+    Ok(format!("synopsis changed"))
 }
 
 fn open_book(info: Json<Openbook>) -> Result<String> {
@@ -254,6 +273,7 @@ fn main() {
                 .resource("/newbook", |r| r.method(http::Method::POST).with(new_book))
                 .resource("/openbook", |r| r.method(http::Method::POST).with(open_book))
                 .resource("/savebook", |r| r.method(http::Method::POST).with(save_book))
+                .resource("/savesynopsis", |r| r.method(http::Method::POST).with(save_synopsis))
                 .resource("/save", |r| r.method(http::Method::POST).with(save))
                 .resource("/delete", |r| r.method(http::Method::POST).with(delete_file))
                 .register()
