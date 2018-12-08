@@ -12,18 +12,27 @@ use std::io::prelude::*;
 use std::collections::HashMap;
 
 
+fn mkdirs(tree: &Tree, location: &str, name: &str) -> Result<()> {
 
-fn mkdirs(book: &Book) -> Result<()> {
-
-    for  (_id, file) in &book.tree.0 {
+    for  (_id, file) in &tree.0 {
         if file.is_folder == true {
-            fs::create_dir_all(format!("{}/{}", book.location, file.full_path))?;
+            let mut path = path::PathBuf::from(location);
+            if name != "" {
+                path.push(name);
+            };
+            path.push(&file.full_path);
+            fs::create_dir_all(path)?;
         }
     }
 
-    for (_id, file) in &book.tree.0 {
+    for (_id, file) in &tree.0 {
         if file.is_folder == false {
-            fs::File::create(format!("{}/{}", book.location, file.full_path))?;
+            let mut path = path::PathBuf::from(location);
+            if name != "" {
+                path.push(name);
+            };
+            path.push(&file.full_path);
+            fs::File::create(path)?;
         }
     }
 
@@ -109,11 +118,11 @@ impl Tree {
         let name = builder.name.unwrap();
         // check pathbuff might be useful
         // come up with better way to build these structs
-        let book = File::new(1, &name, format!("{}", name), 0, true, true);
-        let chap1 = File::new(2, "chap1", format!("{}/chap1", name), 1, true, false);
-        let chap2 = File::new(3, "chap2", format!("{}/chap2", name), 1, true, false);
-        let chap3 = File::new(4, "chap3", format!("{}/chap3", name), 1, true, true);
-        let sec1 = File::new(5,  "sec1", format!("{}/chap3/sec1", name), 4, true, false);
+        let book = File::new(1, &name, format!(""), 0, true, true);
+        let chap1 = File::new(2, "chap1", format!("chap1"), 1, true, false);
+        let chap2 = File::new(3, "chap2", format!("chap2"), 1, true, false);
+        let chap3 = File::new(4, "chap3", format!("chap3"), 1, true, true);
+        let sec1 = File::new(5,  "sec1", format!("chap3/sec1"), 4, true, false);
 
         tree.insert(book.id, book);
         tree.insert(chap1.id, chap1);
@@ -159,7 +168,6 @@ impl File {
     }
 }
 
-// should also have a title
 #[derive(Serialize,Deserialize,Debug)]
 struct Synopsis {
     id: u32,
@@ -200,7 +208,7 @@ fn new_book(info: Json<BookBuilder>) -> Result<String> {
     let book = info.build()?;
 
     // must be a method of Book
-    mkdirs(&book)?;
+    mkdirs(&book.tree, &book.location, &book.name)?;
 
     let mut path = path::PathBuf::from(&info.location);
     path.push(&info.name);
@@ -216,13 +224,14 @@ fn new_book(info: Json<BookBuilder>) -> Result<String> {
 #[derive(Serialize,Deserialize,Debug)]
 struct Content(HashMap<u32, String>);
 
-// create a hashmap of content and fileid
 impl Content {
 
     fn from_tree(tree: &Tree) -> Self {
         let mut content = HashMap::new();
-        for (id, _) in &tree.0 {
-            content.insert(id.clone(), String::new());
+        for (id, file) in &tree.0 {
+            if file.is_folder == false {
+                content.insert(id.clone(), String::new());
+            }
         }
         Content(content)
     }
@@ -247,13 +256,11 @@ impl Content {
         for (id, file) in tree.0.iter() {
             match self.0.get(id) {
                 Some(current_content) => {
-                    // loc is path push pop will work
                     let location = format!("{}/{}", loc, file.full_path);
                     let mut f = fs::File::create(location)?;
                     f.write_all(current_content.as_bytes())?;
                 },
                 None => {
-                    //return error or do nothing not sure
                 }
             }
         }
@@ -261,26 +268,6 @@ impl Content {
     }
 
 }
-
-
-#[derive(Serialize,Deserialize,Debug)]
-struct SaveSynopsis {
-    location: String,
-    synopsis: Vec<Synopsis>
-}
-
-fn save_synopsis(info: Json<SaveSynopsis>) -> Result<String> {
-    println!("{:?}", info.location);
-    let mut path = path::PathBuf::from(&info.location);
-
-    path.push("synopsis.json");
-    let  mut f = fs::File::create(&path)?;
-    let ser_synopsis = serde_json::to_string(&info.synopsis)?;
-    f.write(ser_synopsis.as_bytes())?;
-    Ok(format!("synopsis changed"))
-}
-
-
 
 #[derive(Serialize,Deserialize,Debug)]
 struct Openbook {
@@ -318,6 +305,9 @@ struct SaveBook {
 }
 
 fn save_book(book: Json<SaveBook>) -> Result<String> {
+
+    mkdirs(&book.tree, &book.location, "")?;
+
     book.tree.to_disk(&book.location)?;
 
     match &book.content {
@@ -370,7 +360,6 @@ fn main() {
                 .resource("/newbook", |r| r.method(http::Method::POST).with(new_book))
                 .resource("/openbook", |r| r.method(http::Method::POST).with(open_book))
                 .resource("/savebook", |r| r.method(http::Method::POST).with(save_book))
-                .resource("/savesynopsis", |r| r.method(http::Method::POST).with(save_synopsis))
                 .resource("/save", |r| r.method(http::Method::POST).with(save))
                 .resource("/delete", |r| r.method(http::Method::POST).with(delete_file))
                 .register()
