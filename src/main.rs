@@ -12,23 +12,27 @@ use std::io::prelude::*;
 use std::path;
 
 fn mkdirs(tree: &Tree, location: &str, name: &str) -> Result<()> {
-    for (_id, file) in &tree.0 {
-        if file.is_folder == true {
+    for file in tree.0.values() {
+        if file.is_folder {
             let mut path = path::PathBuf::from(location);
+
             if name != "" {
                 path.push(name);
             };
+
             path.push(&file.full_path);
             fs::create_dir_all(path)?;
         }
     }
 
-    for (_id, file) in &tree.0 {
-        if file.is_folder == false {
+    for file in tree.0.values() {
+        if !file.is_folder {
             let mut path = path::PathBuf::from(location);
+
             if name != "" {
                 path.push(name);
             };
+
             path.push(&file.full_path);
             fs::File::create(path)?;
         }
@@ -69,9 +73,9 @@ impl BookBuilder {
         Ok(Book {
             location: self.location.clone(),
             name: self.name.clone(),
-            tree: tree,
-            content: content,
-            synopsis: synopsis,
+            tree,
+            content,
+            synopsis,
         })
     }
 }
@@ -118,19 +122,95 @@ impl Tree {
     fn from_builder(builder: TreeBuilder) -> Tree {
         let mut tree = HashMap::new();
         let name = builder.name.unwrap();
-        // check pathbuff might be useful
-        // come up with better way to build these structs
-        let book = File::new(1, &name, format!(""), 0, true, true);
-        let chap1 = File::new(2, "chap1", format!("chap1"), 1, true, false);
-        let chap2 = File::new(3, "chap2", format!("chap2"), 1, true, false);
-        let chap3 = File::new(4, "chap3", format!("chap3"), 1, true, true);
-        let sec1 = File::new(5, "sec1", format!("chap3/sec1"), 4, true, false);
+
+        let root = FileBuilder::new()
+            .id(1)
+            .name(&name)
+            .full_path("")
+            .parent(0)
+            .visible(true)
+            .folder(true)
+            .finish();
+        let book = FileBuilder::new()
+            .id(2)
+            .name("Book")
+            .full_path("Book")
+            .parent(1)
+            .visible(true)
+            .folder(true)
+            .finish();
+        let chap1 = FileBuilder::new()
+            .id(3)
+            .name("chap1")
+            .full_path("Book/chap1")
+            .parent(2)
+            .visible(true)
+            .folder(false)
+            .finish();
+        let chap2 = FileBuilder::new()
+            .id(4)
+            .name("chap2")
+            .full_path("Book/chap2")
+            .parent(2)
+            .visible(true)
+            .folder(false)
+            .finish();
+        let chap3 = FileBuilder::new()
+            .id(5)
+            .name("chap3")
+            .full_path("Book/chap3")
+            .parent(2)
+            .visible(true)
+            .folder(true)
+            .finish();
+        let sec1 = FileBuilder::new()
+            .id(6)
+            .name("sec1")
+            .full_path("Book/chap3/sec1")
+            .parent(5)
+            .visible(true)
+            .folder(false)
+            .finish();
+
+        let research = FileBuilder::new()
+            .id(7)
+            .name("Research")
+            .full_path("Research")
+            .parent(1)
+            .visible(true)
+            .folder(true)
+            .research(true)
+            .finish();
+        let chars = FileBuilder::new()
+            .id(8)
+            .name("chars")
+            .full_path("Research/chars")
+            .parent(7)
+            .visible(true)
+            .folder(false)
+            .research(true)
+            .finish();
+        let worlds = FileBuilder::new()
+            .id(9)
+            .name("worlds")
+            .full_path("Research/worlds")
+            .parent(7)
+            .visible(true)
+            .folder(false)
+            .research(true)
+            .finish();
+
+        tree.insert(root.id, root);
 
         tree.insert(book.id, book);
         tree.insert(chap1.id, chap1);
         tree.insert(chap2.id, chap2);
         tree.insert(chap3.id, chap3);
         tree.insert(sec1.id, sec1);
+
+        tree.insert(research.id, research);
+        tree.insert(chars.id, chars);
+        tree.insert(worlds.id, worlds);
 
         Tree(tree)
     }
@@ -161,17 +241,76 @@ struct File {
     parent: u32,
     is_visible: bool,
     is_folder: bool,
+    is_research: bool,
 }
 
-impl File {
-    fn new(id: u32, name: &str, path: String, parent: u32, visible: bool, folder: bool) -> Self {
+struct FileBuilder {
+    id: Option<u32>,
+    name: Option<String>,
+    full_path: Option<String>,
+    parent: Option<u32>,
+    is_visible: Option<bool>,
+    is_folder: Option<bool>,
+    is_research: Option<bool>,
+}
+
+impl FileBuilder {
+    fn new() -> Self {
+        FileBuilder {
+            id: None,
+            name: None,
+            full_path: None,
+            parent: None,
+            is_visible: None,
+            is_folder: None,
+            is_research: None,
+        }
+    }
+
+    fn id(mut self, id: u32) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    fn name(mut self, name: &str) -> Self {
+        self.name = Some(name.to_owned());
+        self
+    }
+
+    fn full_path(mut self, path: &str) -> Self {
+        self.full_path = Some(path.to_owned());
+        self
+    }
+
+    fn parent(mut self, parent: u32) -> Self {
+        self.parent = Some(parent);
+        self
+    }
+
+    fn visible(mut self, visible: bool) -> Self {
+        self.is_visible = Some(visible);
+        self
+    }
+
+    fn folder(mut self, folder: bool) -> Self {
+        self.is_folder = Some(folder);
+        self
+    }
+
+    fn research(mut self, research: bool) -> Self {
+        self.is_research = Some(research);
+        self
+    }
+
+    fn finish(self) -> File {
         File {
-            id: id,
-            name: name.to_owned(),
-            full_path: path,
-            parent: parent,
-            is_visible: visible,
-            is_folder: folder,
+            id: self.id.unwrap(),
+            name: self.name.unwrap(),
+            full_path: self.full_path.unwrap(),
+            parent: self.parent.unwrap(),
+            is_visible: self.is_visible.unwrap(),
+            is_folder: self.is_folder.unwrap(),
+            is_research: self.is_research.unwrap_or(false),
         }
     }
 }
@@ -187,8 +326,8 @@ impl Synopsis {
         let mut vec_synopsis = Vec::new();
         for id in tree.0.keys() {
             vec_synopsis.push(Synopsis {
-                id: id.clone(),
-                content: format!(""),
+                id: *id,
+                content: "".to_string(),
             });
         }
         Ok(vec_synopsis)
@@ -203,7 +342,7 @@ impl Synopsis {
     }
 
     // vec synopsis and synopsis are not the same thing that is why this does not take self
-    fn to_disk(synopsis: &Vec<Synopsis>, location: &str) -> Result<()> {
+    fn to_disk(synopsis: &[Synopsis], location: &str) -> Result<()> {
         let ser_synopsis = serde_json::to_string(synopsis)?;
         let mut path = path::PathBuf::from(location);
         path.push("synopsis.json");
@@ -263,13 +402,10 @@ impl Content {
 
     fn to_disk(&self, tree: &Tree, loc: &str) -> Result<()> {
         for (id, file) in tree.0.iter() {
-            match self.0.get(id) {
-                Some(current_content) => {
-                    let location = format!("{}/{}", loc, file.full_path);
-                    let mut f = fs::File::create(location)?;
-                    f.write_all(current_content.as_bytes())?;
-                }
-                None => {}
+            if let Some(current_content) = self.0.get(id) {
+                let location = format!("{}/{}", loc, file.full_path);
+                let mut f = fs::File::create(location)?;
+                f.write_all(current_content.as_bytes())?;
             }
         }
         Ok(())
@@ -316,7 +452,11 @@ struct SaveBook {
 }
 
 fn save_book(book: Json<SaveBook>) -> Result<String> {
-    mkdirs(&book.tree, &book.location, "")?;
+    let mut path = path::PathBuf::from(&book.location);
+    let book_name = path.file_name().unwrap().to_owned().into_string().unwrap();
+    path.pop();
+
+    mkdirs(&book.tree, &path.to_str().unwrap(), &book_name)?;
 
     book.tree.to_disk(&book.location)?;
 
@@ -334,12 +474,12 @@ fn save_book(book: Json<SaveBook>) -> Result<String> {
         None => {}
     };
 
-    Ok(format!("saved book"))
+    Ok("saved book".to_string())
 }
 
 fn delete_file(info: Path<(String,)>) -> Result<String> {
     fs::remove_dir_all(&info.0).unwrap();
-    Ok(format!("deleted file"))
+    Ok("deleted file".to_string())
 }
 
 #[derive(Deserialize, Debug)]
@@ -351,7 +491,7 @@ struct Save {
 fn save(info: Json<Save>) -> Result<String> {
     let mut f = fs::File::create(&info.file).unwrap();
     f.write_all(&info.content.as_bytes()).unwrap();
-    Ok(format!("save file"))
+    Ok("save file".to_string())
 }
 
 // websockets might be a better idea
