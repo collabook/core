@@ -6,15 +6,13 @@ extern crate serde_json;
 
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App, Json, Path, Result};
-use std::fs;
-use std::path;
-use std::io::prelude::*;
 use std::collections::HashMap;
-
+use std::fs;
+use std::io::prelude::*;
+use std::path;
 
 fn mkdirs(tree: &Tree, location: &str, name: &str) -> Result<()> {
-
-    for  (_id, file) in &tree.0 {
+    for (_id, file) in &tree.0 {
         if file.is_folder == true {
             let mut path = path::PathBuf::from(location);
             if name != "" {
@@ -39,13 +37,13 @@ fn mkdirs(tree: &Tree, location: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-#[derive(Serialize,Debug)]
+#[derive(Serialize, Debug)]
 struct Book {
     tree: Tree,
     content: Content,
     synopsis: Vec<Synopsis>,
     location: String,
-    name: String
+    name: String,
 }
 
 #[allow(unused)]
@@ -57,34 +55,40 @@ struct BookBuilder {
 }
 
 impl BookBuilder {
-
     fn build(&self) -> Result<Book> {
-
         let tree = TreeBuilder::new()
             .name(&self.name)
             .location(&self.location)
             .genre(&self.genre)
             .build();
-        
+
         let synopsis = Synopsis::from_tree(&tree)?;
 
         let content = Content::from_tree(&tree);
 
-        Ok(Book {location: self.location.clone(), name: self.name.clone(), tree: tree, content: content, synopsis: synopsis})
+        Ok(Book {
+            location: self.location.clone(),
+            name: self.name.clone(),
+            tree: tree,
+            content: content,
+            synopsis: synopsis,
+        })
     }
 }
-
 
 struct TreeBuilder {
     name: Option<String>,
     location: Option<String>,
-    genre: Option<String>
+    genre: Option<String>,
 }
 
 impl TreeBuilder {
-
     fn new() -> TreeBuilder {
-        TreeBuilder { name: None, location: None, genre: None }
+        TreeBuilder {
+            name: None,
+            location: None,
+            genre: None,
+        }
     }
 
     fn name(mut self, name: &str) -> TreeBuilder {
@@ -107,13 +111,11 @@ impl TreeBuilder {
     }
 }
 
-
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Tree(HashMap<u32, File>);
 
 impl Tree {
     fn from_builder(builder: TreeBuilder) -> Tree {
-
         let mut tree = HashMap::new();
         let name = builder.name.unwrap();
         // check pathbuff might be useful
@@ -122,7 +124,7 @@ impl Tree {
         let chap1 = File::new(2, "chap1", format!("chap1"), 1, true, false);
         let chap2 = File::new(3, "chap2", format!("chap2"), 1, true, false);
         let chap3 = File::new(4, "chap3", format!("chap3"), 1, true, true);
-        let sec1 = File::new(5,  "sec1", format!("chap3/sec1"), 4, true, false);
+        let sec1 = File::new(5, "sec1", format!("chap3/sec1"), 4, true, false);
 
         tree.insert(book.id, book);
         tree.insert(chap1.id, chap1);
@@ -150,8 +152,7 @@ impl Tree {
     }
 }
 
-
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct File {
     id: u32,
@@ -164,21 +165,31 @@ struct File {
 
 impl File {
     fn new(id: u32, name: &str, path: String, parent: u32, visible: bool, folder: bool) -> Self {
-        File {id: id, name: name.to_owned(), full_path: path, parent: parent, is_visible: visible, is_folder: folder}
+        File {
+            id: id,
+            name: name.to_owned(),
+            full_path: path,
+            parent: parent,
+            is_visible: visible,
+            is_folder: folder,
+        }
     }
 }
 
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Synopsis {
     id: u32,
-    content: String
+    content: String,
 }
 
 impl Synopsis {
     fn from_tree(tree: &Tree) -> Result<Vec<Self>> {
         let mut vec_synopsis = Vec::new();
         for id in tree.0.keys() {
-            vec_synopsis.push(Synopsis {id: id.clone(), content: format!("")});
+            vec_synopsis.push(Synopsis {
+                id: id.clone(),
+                content: format!(""),
+            });
         }
         Ok(vec_synopsis)
     }
@@ -204,7 +215,6 @@ impl Synopsis {
 
 // should also create an empty hashmap for content
 fn new_book(info: Json<BookBuilder>) -> Result<String> {
-
     let book = info.build()?;
 
     // must be a method of Book
@@ -221,11 +231,10 @@ fn new_book(info: Json<BookBuilder>) -> Result<String> {
     Ok(serde_json::to_string(&book)?)
 }
 
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Content(HashMap<u32, String>);
 
 impl Content {
-
     fn from_tree(tree: &Tree) -> Self {
         let mut content = HashMap::new();
         for (id, file) in &tree.0 {
@@ -239,7 +248,7 @@ impl Content {
     fn from_disk(tree: &Tree, loc: &str) -> Result<Self> {
         let mut content = HashMap::new();
         for (id, file) in &tree.0 {
-            if file.is_folder == false  {
+            if file.is_folder == false {
                 let mut buf = String::new();
 
                 let mut path = path::PathBuf::from(loc);
@@ -259,25 +268,21 @@ impl Content {
                     let location = format!("{}/{}", loc, file.full_path);
                     let mut f = fs::File::create(location)?;
                     f.write_all(current_content.as_bytes())?;
-                },
-                None => {
                 }
+                None => {}
             }
         }
         Ok(())
     }
-
 }
 
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Openbook {
     // must contain bookname
-    location: String
+    location: String,
 }
 
-
 fn open_book(info: Json<Openbook>) -> Result<String> {
-
     let tree = Tree::from_file(&info.location)?;
 
     let synopsis = Synopsis::from_file(&info.location)?;
@@ -290,22 +295,27 @@ fn open_book(info: Json<Openbook>) -> Result<String> {
     path.pop(); // remove book name
     let location = path.to_str().unwrap().to_owned();
 
-    let res_data = Book {location, name, tree, content, synopsis};
+    let res_data = Book {
+        location,
+        name,
+        tree,
+        content,
+        synopsis,
+    };
 
     Ok(serde_json::to_string(&res_data)?)
 }
 
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct SaveBook {
     //location should include bookname
     location: String,
     tree: Tree,
     content: Option<Content>,
-    synopsis: Option<Vec<Synopsis>>
+    synopsis: Option<Vec<Synopsis>>,
 }
 
 fn save_book(book: Json<SaveBook>) -> Result<String> {
-
     mkdirs(&book.tree, &book.location, "")?;
 
     book.tree.to_disk(&book.location)?;
@@ -313,17 +323,15 @@ fn save_book(book: Json<SaveBook>) -> Result<String> {
     match &book.content {
         Some(content) => {
             content.to_disk(&book.tree, &book.location)?;
-        },
-        None => {
         }
+        None => {}
     };
 
     match &book.synopsis {
         Some(synopsis) => {
             Synopsis::to_disk(&synopsis, &book.location)?;
-        },
-        None => {
         }
+        None => {}
     };
 
     Ok(format!("saved book"))
@@ -334,7 +342,7 @@ fn delete_file(info: Path<(String,)>) -> Result<String> {
     Ok(format!("deleted file"))
 }
 
-#[derive(Deserialize,Debug)]
+#[derive(Deserialize, Debug)]
 struct Save {
     content: String,
     file: String,
@@ -358,13 +366,20 @@ fn main() {
                 .supports_credentials()
                 .max_age(3600)
                 .resource("/newbook", |r| r.method(http::Method::POST).with(new_book))
-                .resource("/openbook", |r| r.method(http::Method::POST).with(open_book))
-                .resource("/savebook", |r| r.method(http::Method::POST).with(save_book))
+                .resource("/openbook", |r| {
+                    r.method(http::Method::POST).with(open_book)
+                })
+                .resource("/savebook", |r| {
+                    r.method(http::Method::POST).with(save_book)
+                })
                 .resource("/save", |r| r.method(http::Method::POST).with(save))
-                .resource("/delete", |r| r.method(http::Method::POST).with(delete_file))
+                .resource("/delete", |r| {
+                    r.method(http::Method::POST).with(delete_file)
+                })
                 .register()
         })
-    }).bind("localhost:8088")
+    })
+    .bind("localhost:8088")
     .unwrap()
     .run();
 }
