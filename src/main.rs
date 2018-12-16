@@ -3,13 +3,18 @@ extern crate actix_web;
 extern crate serde_derive;
 extern crate env_logger;
 extern crate serde_json;
+extern crate git2;
+extern crate xdg;
+extern crate toml;
 
 use actix_web::middleware::{cors::Cors, Logger};
-use actix_web::{http, server, App, Json, Path, Result};
+use actix_web::{http, server, App, Json, Path, Result, HttpResponse, Responder, HttpRequest};
 use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
 use std::path;
+use git2::Repository;
+use xdg::BaseDirectories;
 
 fn mkdirs(tree: &Tree, location: &str, name: &str) -> Result<()> {
     for file in tree.0.values() {
@@ -413,12 +418,12 @@ impl Content {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct Openbook {
+struct BookLocation {
     // must contain bookname
     location: String,
 }
 
-fn open_book(info: Json<Openbook>) -> Result<String> {
+fn open_book(info: Json<BookLocation>) -> Result<String> {
     let tree = Tree::from_file(&info.location)?;
 
     let synopsis = Synopsis::from_file(&info.location)?;
@@ -494,6 +499,127 @@ fn save(info: Json<Save>) -> Result<String> {
     Ok("save file".to_string())
 }
 
+#[derive(Serialize,Deserialize,Debug)]
+struct Author {
+    name: String,
+    email: String,
+}
+
+fn get_author(_req: &HttpRequest) -> impl Responder {
+    let xdg_dirs = BaseDirectories::with_prefix("collabook").unwrap();
+    match xdg_dirs.find_config_file("Config.toml") {
+        Some(config) => {
+            let mut file = fs::File::open(config).unwrap();
+            let mut contents = String::new();
+            file.read_to_string(&mut contents).unwrap();
+            let author: Author = toml::from_str(&contents).unwrap();
+            HttpResponse::Ok().json(author)
+        },
+        None => {
+            HttpResponse::NotFound().finish()
+        },
+    }
+}
+
+fn create_author(info: Json<Author>) -> impl Responder {
+    let xdg_dirs = BaseDirectories::with_prefix("collabook").unwrap();
+    match xdg_dirs.place_config_file("Config.toml") {
+        Ok(path) => {
+            let author = info.into_inner();
+            let contents = toml::to_string(&author).unwrap();
+            let mut file = fs::File::create(path).unwrap();
+            file.write_all(contents.as_bytes()).unwrap();
+            HttpResponse::Ok()
+        },
+        Err(_) => {
+            HttpResponse::BadRequest()
+        }
+    }
+}
+
+
+
+/*
+ *
+ * Git stuff
+ *
+ */
+
+// may be we should do this automatically for all books
+fn git_init(info: Json<BookLocation>) -> impl Responder {
+    let response = match Repository::init(&info.location) {
+        Ok(_) => HttpResponse::Ok(),
+        Err(_) => HttpResponse::BadRequest()
+    };
+    response
+}
+
+fn git_add(info: Json<BookLocation>) -> impl Responder {
+    match Repository::open(&info.location) {
+        Ok(repo) => {
+            repo.index().unwrap().add_all(["*"].iter(), git2::IndexAddOption::empty(), None).unwrap();
+            repo.index().unwrap().write().unwrap();
+            HttpResponse::Ok()
+        },
+        Err(_) => HttpResponse::BadRequest()
+    }
+}
+
+#[derive(Serialize,Deserialize,Debug)]
+struct CommitRequest {
+    message: String,
+    location: String,
+}
+
+fn git_commit(info: Json<CommitRequest>) -> impl Responder  {
+    match Repository::open(&info.location) {
+        Ok(repo) => {
+
+            // git add -a
+            //
+            repo.index().unwrap().add_all(["*"].iter(), git2::IndexAddOption::empty(), None).unwrap();
+            repo.index().unwrap().write().unwrap();
+
+            // git commit -m "message"
+            let xdg_dirs = BaseDirectories::with_prefix("collabook").unwrap();
+            let signature = match xdg_dirs.find_config_file("Config.toml") {
+                Some(path) => {
+                    let mut file = fs::File::open(path).unwrap();
+                    let mut contents = String::new();
+                    file.read_to_string(&mut contents).unwrap();
+                    let author: Author = toml::from_str(&contents).unwrap();
+                    git2::Signature::now(&author.name, &author.email).unwrap()
+                },
+                None => {
+                    // should return error
+                    git2::Signature::now("xyz", "xyz.com").unwrap()
+                }
+            };
+            let mut index = repo.index().unwrap();
+            let id = index.write_tree().unwrap();
+            let tree = repo.find_tree(id).unwrap();
+            // cannot figure out how to create initial commit
+            match repo.head() {
+                Ok(head) => {
+                    let parent = repo.find_commit(head.target().unwrap()).unwrap();
+                    repo.commit(Some("HEAD"), &signature, &signature, &info.message, &tree, &[&parent]).unwrap(); 
+                },
+                // we should check if the error is regarding there being no head or not (initial
+                // commit)
+                Err(_) => {
+                    repo.commit(Some("HEAD"), &signature, &signature, &info.message, &tree, &[]).unwrap(); 
+                }
+            };
+
+            HttpResponse::Ok()
+        },
+        Err(_) => {
+            println!("sad");
+            HttpResponse::BadRequest()
+        }
+    }
+}
+
 // websockets might be a better idea
 fn main() {
     std::env::set_var("RUST_LOG", "actix_web=info");
@@ -505,6 +631,10 @@ fn main() {
                 .allowed_origin("http://localhost:9080")
                 .supports_credentials()
                 .max_age(3600)
+                .resource("/author", |r| {
+                    r.method(http::Method::GET).f(get_author);
+                    r.method(http::Method::POST).with(create_author);
+                })
                 .resource("/newbook", |r| r.method(http::Method::POST).with(new_book))
                 .resource("/openbook", |r| {
                     r.method(http::Method::POST).with(open_book)
@@ -516,6 +646,9 @@ fn main() {
                 .resource("/delete", |r| {
                     r.method(http::Method::POST).with(delete_file)
                 })
+                .resource("/gitinit", |r| r.method(http::Method::POST).with(git_init))
+                .resource("/gitadd", |r| r.method(http::Method::POST).with(git_add))
+                .resource("/gitcommit", |r| r.method(http::Method::POST).with(git_commit))
                 .register()
         })
     })
