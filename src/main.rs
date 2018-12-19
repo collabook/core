@@ -2,18 +2,18 @@ extern crate actix_web;
 #[macro_use]
 extern crate serde_derive;
 extern crate env_logger;
-extern crate serde_json;
 extern crate git2;
-extern crate xdg;
+extern crate serde_json;
 extern crate toml;
+extern crate xdg;
 
 use actix_web::middleware::{cors::Cors, Logger};
-use actix_web::{http, server, App, Json, Path, Result, HttpResponse, Responder, HttpRequest};
+use actix_web::{http, server, App, HttpRequest, HttpResponse, Json, Path, Responder, Result};
+use git2::Repository;
 use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
 use std::path;
-use git2::Repository;
 use xdg::BaseDirectories;
 
 fn mkdirs(tree: &Tree, location: &str, name: &str) -> Result<()> {
@@ -92,25 +92,25 @@ struct TreeBuilder {
 }
 
 impl TreeBuilder {
-    fn new() -> TreeBuilder {
-        TreeBuilder {
+    fn new() -> Self {
+        Self {
             name: None,
             location: None,
             genre: None,
         }
     }
 
-    fn name(mut self, name: &str) -> TreeBuilder {
+    fn name(mut self, name: &str) -> Self {
         self.name = Some(name.to_owned());
         self
     }
 
-    fn location(mut self, location: &str) -> TreeBuilder {
+    fn location(mut self, location: &str) -> Self {
         self.location = Some(location.to_owned());
         self
     }
 
-    fn genre(mut self, genre: &str) -> TreeBuilder {
+    fn genre(mut self, genre: &str) -> Self {
         self.genre = Some(genre.to_owned());
         self
     }
@@ -124,7 +124,7 @@ impl TreeBuilder {
 struct Tree(HashMap<u32, File>);
 
 impl Tree {
-    fn from_builder(builder: TreeBuilder) -> Tree {
+    fn from_builder(builder: TreeBuilder) -> Self {
         let mut tree = HashMap::new();
         let name = builder.name.unwrap();
 
@@ -220,7 +220,7 @@ impl Tree {
         Tree(tree)
     }
 
-    fn from_file(location: &str) -> Result<Tree> {
+    fn from_file(location: &str) -> Result<Self> {
         let mut path = path::PathBuf::from(location);
         path.push("tree.json");
         let file = fs::File::open(&path)?;
@@ -261,7 +261,7 @@ struct FileBuilder {
 
 impl FileBuilder {
     fn new() -> Self {
-        FileBuilder {
+        Self {
             id: None,
             name: None,
             full_path: None,
@@ -330,7 +330,7 @@ impl Synopsis {
     fn from_tree(tree: &Tree) -> Result<Vec<Self>> {
         let mut vec_synopsis = Vec::new();
         for id in tree.0.keys() {
-            vec_synopsis.push(Synopsis {
+            vec_synopsis.push(Self {
                 id: *id,
                 content: "".to_string(),
             });
@@ -347,7 +347,7 @@ impl Synopsis {
     }
 
     // vec synopsis and synopsis are not the same thing that is why this does not take self
-    fn to_disk(synopsis: &[Synopsis], location: &str) -> Result<()> {
+    fn to_disk(synopsis: &[Self], location: &str) -> Result<()> {
         let ser_synopsis = serde_json::to_string(synopsis)?;
         let mut path = path::PathBuf::from(location);
         path.push("synopsis.json");
@@ -382,7 +382,7 @@ impl Content {
     fn from_tree(tree: &Tree) -> Self {
         let mut content = HashMap::new();
         for (id, file) in &tree.0 {
-            if file.is_folder == false {
+            if !file.is_folder {
                 content.insert(id.clone(), String::new());
             }
         }
@@ -392,7 +392,7 @@ impl Content {
     fn from_disk(tree: &Tree, loc: &str) -> Result<Self> {
         let mut content = HashMap::new();
         for (id, file) in &tree.0 {
-            if file.is_folder == false {
+            if !file.is_folder {
                 let mut buf = String::new();
 
                 let mut path = path::PathBuf::from(loc);
@@ -406,7 +406,7 @@ impl Content {
     }
 
     fn to_disk(&self, tree: &Tree, loc: &str) -> Result<()> {
-        for (id, file) in tree.0.iter() {
+        for (id, file) in &tree.0 {
             if let Some(current_content) = self.0.get(id) {
                 let location = format!("{}/{}", loc, file.full_path);
                 let mut f = fs::File::create(location)?;
@@ -499,7 +499,7 @@ fn save(info: Json<Save>) -> Result<String> {
     Ok("save file".to_string())
 }
 
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Author {
     name: String,
     email: String,
@@ -514,10 +514,8 @@ fn get_author(_req: &HttpRequest) -> impl Responder {
             file.read_to_string(&mut contents).unwrap();
             let author: Author = toml::from_str(&contents).unwrap();
             HttpResponse::Ok().json(author)
-        },
-        None => {
-            HttpResponse::NotFound().finish()
-        },
+        }
+        None => HttpResponse::NotFound().finish(),
     }
 }
 
@@ -530,14 +528,10 @@ fn create_author(info: Json<Author>) -> impl Responder {
             let mut file = fs::File::create(path).unwrap();
             file.write_all(contents.as_bytes()).unwrap();
             HttpResponse::Ok()
-        },
-        Err(_) => {
-            HttpResponse::BadRequest()
         }
+        Err(_) => HttpResponse::BadRequest(),
     }
 }
-
-
 
 /*
  *
@@ -547,37 +541,41 @@ fn create_author(info: Json<Author>) -> impl Responder {
 
 // may be we should do this automatically for all books
 fn git_init(info: Json<BookLocation>) -> impl Responder {
-    let response = match Repository::init(&info.location) {
+    match Repository::init(&info.location) {
         Ok(_) => HttpResponse::Ok(),
-        Err(_) => HttpResponse::BadRequest()
-    };
-    response
+        Err(_) => HttpResponse::BadRequest(),
+    }
 }
 
 fn git_add(info: Json<BookLocation>) -> impl Responder {
     match Repository::open(&info.location) {
         Ok(repo) => {
-            repo.index().unwrap().add_all(["*"].iter(), git2::IndexAddOption::empty(), None).unwrap();
+            repo.index()
+                .unwrap()
+                .add_all(["*"].iter(), git2::IndexAddOption::empty(), None)
+                .unwrap();
             repo.index().unwrap().write().unwrap();
             HttpResponse::Ok()
-        },
-        Err(_) => HttpResponse::BadRequest()
+        }
+        Err(_) => HttpResponse::BadRequest(),
     }
 }
 
-#[derive(Serialize,Deserialize,Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct CommitRequest {
     message: String,
     location: String,
 }
 
-fn git_commit(info: Json<CommitRequest>) -> impl Responder  {
+fn git_commit(info: Json<CommitRequest>) -> impl Responder {
     match Repository::open(&info.location) {
         Ok(repo) => {
-
             // git add -a
             //
-            repo.index().unwrap().add_all(["*"].iter(), git2::IndexAddOption::empty(), None).unwrap();
+            repo.index()
+                .unwrap()
+                .add_all(["*"].iter(), git2::IndexAddOption::empty(), None)
+                .unwrap();
             repo.index().unwrap().write().unwrap();
 
             // git commit -m "message"
@@ -589,7 +587,7 @@ fn git_commit(info: Json<CommitRequest>) -> impl Responder  {
                     file.read_to_string(&mut contents).unwrap();
                     let author: Author = toml::from_str(&contents).unwrap();
                     git2::Signature::now(&author.name, &author.email).unwrap()
-                },
+                }
                 None => {
                     // should return error
                     git2::Signature::now("xyz", "xyz.com").unwrap()
@@ -602,19 +600,34 @@ fn git_commit(info: Json<CommitRequest>) -> impl Responder  {
             match repo.head() {
                 Ok(head) => {
                     let parent = repo.find_commit(head.target().unwrap()).unwrap();
-                    repo.commit(Some("HEAD"), &signature, &signature, &info.message, &tree, &[&parent]).unwrap(); 
-                },
+                    repo.commit(
+                        Some("HEAD"),
+                        &signature,
+                        &signature,
+                        &info.message,
+                        &tree,
+                        &[&parent],
+                    )
+                    .unwrap();
+                }
                 // we should check if the error is regarding there being no head or not (initial
                 // commit)
                 Err(_) => {
-                    repo.commit(Some("HEAD"), &signature, &signature, &info.message, &tree, &[]).unwrap(); 
+                    repo.commit(
+                        Some("HEAD"),
+                        &signature,
+                        &signature,
+                        &info.message,
+                        &tree,
+                        &[],
+                    )
+                    .unwrap();
                 }
             };
 
             HttpResponse::Ok()
-        },
+        }
         Err(_) => {
-            println!("sad");
             HttpResponse::BadRequest()
         }
     }
@@ -648,7 +661,9 @@ fn main() {
                 })
                 .resource("/gitinit", |r| r.method(http::Method::POST).with(git_init))
                 .resource("/gitadd", |r| r.method(http::Method::POST).with(git_add))
-                .resource("/gitcommit", |r| r.method(http::Method::POST).with(git_commit))
+                .resource("/gitcommit", |r| {
+                    r.method(http::Method::POST).with(git_commit)
+                })
                 .register()
         })
     })
