@@ -1,6 +1,7 @@
 extern crate actix_web;
 #[macro_use]
 extern crate serde_derive;
+extern crate chrono;
 extern crate env_logger;
 extern crate git2;
 extern crate serde_json;
@@ -9,6 +10,7 @@ extern crate xdg;
 
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App, HttpRequest, HttpResponse, Json, Path, Responder, Result};
+use chrono::prelude::*;
 use git2::Repository;
 use std::collections::HashMap;
 use std::fs;
@@ -627,9 +629,62 @@ fn git_commit(info: Json<CommitRequest>) -> impl Responder {
 
             HttpResponse::Ok()
         }
-        Err(_) => {
-            HttpResponse::BadRequest()
+        Err(_) => HttpResponse::BadRequest(),
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct CustomCommit {
+    oid: String,
+    message: String,
+    author: String,
+    time: String,
+}
+
+fn git_log(info: Json<BookLocation>) -> impl Responder {
+    if let Ok(repo) = Repository::open(&info.location) {
+        let mut walk = repo.revwalk().unwrap();
+        walk.push_head().unwrap(); // TODO: repo with no commits will raise an error here
+        let oids: Vec<git2::Oid> = walk.by_ref().collect::<Result<Vec<_>, _>>().unwrap();
+
+        let mut commits: Vec<CustomCommit> = Vec::new();
+        for oid in oids {
+            if let Ok(commit) = repo.find_commit(oid) {
+                let naive_datetime = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
+                let datetime: DateTime<Utc> = DateTime::from_utc(naive_datetime, Utc);
+                let custom_commit = CustomCommit {
+                    oid: oid.to_string(),
+                    message: commit.message().unwrap_or("").to_string(),
+                    author: commit.author().name().unwrap_or("").to_string(),
+                    time: datetime.to_rfc2822(),
+                };
+                commits.push(custom_commit);
+            }
         }
+        HttpResponse::Ok().json(commits)
+    } else {
+        HttpResponse::BadRequest().finish()
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct GitCheckoutRequest {
+    oid: String,
+    location: String,
+}
+
+fn git_checkout(info: Json<GitCheckoutRequest>) -> impl Responder {
+    if let Ok(repo) = Repository::open(&info.location) {
+        let commit_oid = git2::Oid::from_str(&info.oid).unwrap();
+        let commit = repo.find_commit(commit_oid).unwrap();
+        let tree = commit.tree().unwrap().into_object();
+        let mut checkout_builder = git2::build::CheckoutBuilder::new();
+        checkout_builder.force().use_ours(true);
+        repo.checkout_tree(&tree, Some(&mut checkout_builder))
+            .unwrap();
+        HttpResponse::Ok()
+    } else {
+        HttpResponse::BadRequest()
     }
 }
 
@@ -663,6 +718,10 @@ fn main() {
                 .resource("/gitadd", |r| r.method(http::Method::POST).with(git_add))
                 .resource("/gitcommit", |r| {
                     r.method(http::Method::POST).with(git_commit)
+                })
+                .resource("/gitlog", |r| r.method(http::Method::POST).with(git_log))
+                .resource("/gitcheckout", |r| {
+                    r.method(http::Method::POST).with(git_checkout)
                 })
                 .register()
         })
