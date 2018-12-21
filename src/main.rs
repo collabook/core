@@ -9,14 +9,15 @@ extern crate toml;
 extern crate xdg;
 extern crate tempdir;
 
-use actix_web::middleware::{cors::Cors, Logger};
-use actix_web::{http, server, App};
-
 mod book;
 mod vcs;
+mod macros;
 
+use actix_web::middleware::{cors::Cors, Logger};
+use actix_web::{http, server, App};
 use book::*;
 use vcs::*;
+
 
 // websockets might be a better idea
 fn main() {

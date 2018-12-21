@@ -7,20 +7,9 @@ use std::io::prelude::*;
 use std::path;
 
 use book::*;
-
-macro_rules! badrequest {
-    ($expr:expr) => (match $expr {
-        Ok(val) => val,
-        Err(e) => return HttpResponse::BadRequest().body(format!("{}",e))
-    });
-}
-
-macro_rules! git2_error {
-    ($expr:expr) => (match $expr {
-        Ok(val) => val,
-        Err(e) => return Err(git2::Error::from_str(&format!("{}",e)))
-    });
-}
+use badrequest;
+use none;
+use git2_error;
 
 /*
  *
@@ -37,17 +26,11 @@ pub fn git_init(info: Json<BookLocation>) -> impl Responder {
 }
 
 pub fn git_add(info: Json<BookLocation>) -> impl Responder {
-    match Repository::open(&info.location) {
-        Ok(repo) => {
-            repo.index()
-                .unwrap()
-                .add_all(["*"].iter(), git2::IndexAddOption::empty(), None)
-                .unwrap();
-            repo.index().unwrap().write().unwrap();
-            HttpResponse::Ok()
-        }
-        Err(_) => HttpResponse::BadRequest(),
-    }
+    let repo = badrequest!(Repository::open(&info.location));
+    let mut index = badrequest!(repo.index());
+    badrequest!(index.add_all(["*"].iter(), git2::IndexAddOption::empty(), None));
+    badrequest!(index.write());
+    HttpResponse::Ok().finish()
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -57,67 +40,54 @@ pub struct CommitRequest {
 }
 
 pub fn git_commit(info: Json<CommitRequest>) -> impl Responder {
-    match Repository::open(&info.location) {
-        Ok(repo) => {
-            // git add -a
-            //
-            repo.index()
-                .unwrap()
-                .add_all(["*"].iter(), git2::IndexAddOption::empty(), None)
-                .unwrap();
-            repo.index().unwrap().write().unwrap();
+    let repo = badrequest!(Repository::open(&info.location));
 
-            // git commit -m "message"
-            let xdg_dirs = BaseDirectories::with_prefix("collabook").unwrap();
-            let signature = match xdg_dirs.find_config_file("Config.toml") {
-                Some(path) => {
-                    let mut file = fs::File::open(path).unwrap();
-                    let mut contents = String::new();
-                    file.read_to_string(&mut contents).unwrap();
-                    let author: Author = toml::from_str(&contents).unwrap();
-                    git2::Signature::now(&author.name, &author.email).unwrap()
-                }
-                None => {
-                    // should return error
-                    git2::Signature::now("xyz", "xyz.com").unwrap()
-                }
-            };
-            let mut index = repo.index().unwrap();
-            let id = index.write_tree().unwrap();
-            let tree = repo.find_tree(id).unwrap();
-            // cannot figure out how to create initial commit
-            match repo.head() {
-                Ok(head) => {
-                    let parent = repo.find_commit(head.target().unwrap()).unwrap();
-                    repo.commit(
-                        Some("HEAD"),
-                        &signature,
-                        &signature,
-                        &info.message,
-                        &tree,
-                        &[&parent],
-                    )
-                    .unwrap();
-                }
-                // we should check if the error is regarding there being no head or not (initial
-                // commit)
-                Err(_) => {
-                    repo.commit(
-                        Some("HEAD"),
-                        &signature,
-                        &signature,
-                        &info.message,
-                        &tree,
-                        &[],
-                    )
-                    .unwrap();
-                }
-            };
+    // git add -a
+    //
+    let mut index = badrequest!(repo.index());
+    badrequest!(index.add_all(["*"].iter(), git2::IndexAddOption::empty(), None));
+    badrequest!(index.write());
 
-            HttpResponse::Ok()
+    // git commit -m "message"
+    let xdg_dirs = badrequest!(BaseDirectories::with_prefix("collabook"));
+    let path = none!(xdg_dirs.find_config_file("Config.toml"), "Config not found");
+    let mut file = badrequest!(fs::File::open(path));
+    let mut contents = String::new();
+    badrequest!(file.read_to_string(&mut contents));
+    let author: Author = badrequest!(toml::from_str(&contents));
+    let signature = badrequest!(git2::Signature::now(&author.name, &author.email));
+
+    let id = badrequest!(index.write_tree());
+    let tree = badrequest!(repo.find_tree(id));
+
+    // cannot figure out how to create initial commit
+    // initial commit gave me a badrequest error even though the commit was created
+    match repo.head() {
+        Ok(head) => {
+            let target = none!(head.target(), "Cannot get target from head");
+            let parent = badrequest!(repo.find_commit(target));
+            badrequest!(repo.commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                &info.message,
+                &tree,
+                &[&parent],
+            ));
         }
-        Err(_) => HttpResponse::BadRequest(),
-    }
+        Err(_) => {
+            badrequest!(repo.commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                &info.message,
+                &tree,
+                &[],
+            ));
+        }
+    };
+
+    HttpResponse::Ok().finish()
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -129,29 +99,29 @@ struct CustomCommit {
 }
 
 pub fn git_log(info: Json<BookLocation>) -> impl Responder {
-    if let Ok(repo) = Repository::open(&info.location) {
-        let mut walk = repo.revwalk().unwrap();
-        walk.push_head().unwrap(); // TODO: repo with no commits will raise an error here
-        let oids: Vec<git2::Oid> = walk.by_ref().collect::<Result<Vec<_>, _>>().unwrap();
+    let repo = badrequest!(Repository::open(&info.location));
+    let mut walk = badrequest!(repo.revwalk());
 
-        let mut commits: Vec<CustomCommit> = Vec::new();
-        for oid in oids {
-            if let Ok(commit) = repo.find_commit(oid) {
-                let naive_datetime = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
-                let datetime: DateTime<Utc> = DateTime::from_utc(naive_datetime, Utc);
-                let custom_commit = CustomCommit {
-                    oid: oid.to_string(),
-                    message: commit.message().unwrap_or("").to_string(),
-                    author: commit.author().name().unwrap_or("").to_string(),
-                    time: datetime.to_rfc2822(),
-                };
-                commits.push(custom_commit);
-            }
-        }
-        HttpResponse::Ok().json(commits)
-    } else {
-        HttpResponse::BadRequest().finish()
+    badrequest!(walk.push_head()); // TODO: repo with no commits will raise an error here
+
+    let oids: Vec<git2::Oid> = badrequest!(walk.by_ref().collect::<Result<Vec<_>, _>>());
+
+    let mut commits: Vec<CustomCommit> = Vec::new();
+    for oid in oids {
+        let commit = badrequest!(repo.find_commit(oid));
+
+        //TODO: figure out the timestamp thingy
+        let naive_datetime = NaiveDateTime::from_timestamp(commit.time().seconds(), 0);
+        let datetime: DateTime<Utc> = DateTime::from_utc(naive_datetime, Utc);
+        let custom_commit = CustomCommit {
+            oid: oid.to_string(),
+            message: commit.message().unwrap_or("").to_string(),
+            author: commit.author().name().unwrap_or("").to_string(),
+            time: datetime.to_rfc2822(),
+        };
+        commits.push(custom_commit);
     }
+    HttpResponse::Ok().json(commits)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -161,18 +131,14 @@ pub struct GitCheckoutRequest {
 }
 
 pub fn git_checkout(info: Json<GitCheckoutRequest>) -> impl Responder {
-    if let Ok(repo) = Repository::open(&info.location) {
-        let commit_oid = git2::Oid::from_str(&info.oid).unwrap();
-        let commit = repo.find_commit(commit_oid).unwrap();
-        let tree = commit.tree().unwrap().into_object();
-        let mut checkout_builder = git2::build::CheckoutBuilder::new();
-        checkout_builder.force().use_ours(true);
-        repo.checkout_tree(&tree, Some(&mut checkout_builder))
-            .unwrap();
-        HttpResponse::Ok()
-    } else {
-        HttpResponse::BadRequest()
-    }
+    let repo = badrequest!(Repository::open(&info.location));
+    let commit_oid = badrequest!(git2::Oid::from_str(&info.oid));
+    let commit = badrequest!(repo.find_commit(commit_oid));
+    let tree = badrequest!(commit.tree()).into_object();
+    let mut checkout_builder = git2::build::CheckoutBuilder::new();
+    checkout_builder.force().use_ours(true);
+    badrequest!(repo.checkout_tree(&tree, Some(&mut checkout_builder)));
+    HttpResponse::Ok().finish()
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -183,15 +149,9 @@ pub struct GitRemoteAddRequest {
 }
 
 pub fn git_remote_add(info: Json<GitRemoteAddRequest>) -> impl Responder {
-    match Repository::open(&info.location) {
-        Ok(repo) => {
-            match repo.remote(&info.name, &info.url) {
-                Ok(_) => HttpResponse::Ok().finish(),
-                Err(e) => HttpResponse::BadRequest().body(e.message().to_string())
-            }
-        },
-        Err(e) => HttpResponse::BadRequest().body(e.message().to_string())
-    }
+    let repo = badrequest!(Repository::open(&info.location));
+    badrequest!(repo.remote(&info.name, &info.url));
+    HttpResponse::Ok().finish()
 }
 
 

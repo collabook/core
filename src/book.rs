@@ -5,6 +5,9 @@ use std::io::prelude::*;
 use std::path;
 use xdg::BaseDirectories;
 
+use badrequest;
+use none;
+
 fn mkdirs(tree: &Tree, location: &str, name: &str) -> Result<()> {
     for file in tree.0.values() {
         if file.is_folder {
@@ -115,7 +118,7 @@ struct Tree(HashMap<u32, File>);
 impl Tree {
     fn from_builder(builder: TreeBuilder) -> Self {
         let mut tree = HashMap::new();
-        let name = builder.name.unwrap();
+        let name = builder.name.expect("attempt to build tree without name"); // must be always set
 
         let root = FileBuilder::new()
             .id(1)
@@ -298,12 +301,12 @@ impl FileBuilder {
 
     fn finish(self) -> File {
         File {
-            id: self.id.unwrap(),
-            name: self.name.unwrap(),
-            full_path: self.full_path.unwrap(),
-            parent: self.parent.unwrap(),
-            is_visible: self.is_visible.unwrap(),
-            is_folder: self.is_folder.unwrap(),
+            id: self.id.expect("id not set for file"),
+            name: self.name.expect("name not set for file"),
+            full_path: self.full_path.expect("full_path not set for file"),
+            parent: self.parent.expect("parent not set for file"),
+            is_visible: self.is_visible.expect("is_visible not set for file"),
+            is_folder: self.is_folder.expect("is_folder not set for file"),
             is_research: self.is_research.unwrap_or(false),
         }
     }
@@ -347,21 +350,23 @@ impl Synopsis {
 }
 
 // should also create an empty hashmap for content
-pub fn new_book(info: Json<BookBuilder>) -> Result<String> {
-    let book = info.build()?;
+pub fn new_book(info: Json<BookBuilder>) -> impl Responder {
+    let book = badrequest!(info.build());
 
     // must be a method of Book
-    mkdirs(&book.tree, &book.location, &book.name)?;
+    badrequest!(mkdirs(&book.tree, &book.location, &book.name));
 
     let mut path = path::PathBuf::from(&info.location);
     path.push(&info.name);
 
     // path is included here because name is not stored in book
-    book.tree.to_disk(path.to_str().unwrap())?;
+    let str_path = none!(path.to_str(), "Path contains invalid characters");
+    badrequest!(book.tree.to_disk(str_path));
 
-    Synopsis::to_disk(&book.synopsis, path.to_str().unwrap())?;
+    badrequest!(Synopsis::to_disk(&book.synopsis, str_path));
 
-    Ok(serde_json::to_string(&book)?)
+    let ser_book = badrequest!(serde_json::to_string(&book));
+    HttpResponse::Ok().body(ser_book)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -412,18 +417,21 @@ pub struct BookLocation {
     pub location: String,
 }
 
-pub fn open_book(info: Json<BookLocation>) -> Result<String> {
-    let tree = Tree::from_file(&info.location)?;
+pub fn open_book(info: Json<BookLocation>) -> impl Responder {
+    let tree = badrequest!(Tree::from_file(&info.location));
 
-    let synopsis = Synopsis::from_file(&info.location)?;
+    let synopsis = badrequest!(Synopsis::from_file(&info.location));
 
-    let content = Content::from_disk(&tree, &info.location)?;
+    let content = badrequest!(Content::from_disk(&tree, &info.location));
 
     let mut path = path::PathBuf::from(&info.location);
-    let name = path.iter().last().unwrap().to_str().unwrap().to_owned(); //very ugly
+
+    let path2 = path.clone();
+    let file_name = none!(path2.file_name().clone(), "Filename not present");
+    let name: String = none!(file_name.to_str(), "Filename contains invalid utf-8").to_owned();
 
     path.pop(); // remove book name
-    let location = path.to_str().unwrap().to_owned();
+    let location = none!(path.to_str(), "Path contains invalid utf-8").to_owned();
 
     let res_data = Book {
         location,
@@ -433,7 +441,8 @@ pub fn open_book(info: Json<BookLocation>) -> Result<String> {
         synopsis,
     };
 
-    Ok(serde_json::to_string(&res_data)?)
+    let ser_res_data = badrequest!(serde_json::to_string(&res_data));
+    HttpResponse::Ok().body(ser_res_data)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -445,33 +454,37 @@ pub struct SaveBook {
     synopsis: Option<Vec<Synopsis>>,
 }
 
-pub fn save_book(book: Json<SaveBook>) -> Result<String> {
+pub fn save_book(book: Json<SaveBook>) -> impl Responder {
     let mut path = path::PathBuf::from(&book.location);
-    let book_name = path.file_name().unwrap().to_owned().into_string().unwrap();
+    let path2 = path.clone();
+    let file_name = none!(path2.file_name().clone(), "Filename not present");
+    let book_name: String = none!(file_name.to_str(), "Filename contains invalid utf-8").to_owned();
     path.pop();
 
-    mkdirs(&book.tree, &path.to_str().unwrap(), &book_name)?;
+    badrequest!(mkdirs(&book.tree, &none!(path.to_str(), "Path contains invalid utf-8"), &book_name));
 
-    book.tree.to_disk(&book.location)?;
+    badrequest!(book.tree.to_disk(&book.location));
 
     match &book.content {
         Some(content) => {
-            content.to_disk(&book.tree, &book.location)?;
+            badrequest!(content.to_disk(&book.tree, &book.location));
         }
         None => {}
     };
 
     match &book.synopsis {
         Some(synopsis) => {
-            Synopsis::to_disk(&synopsis, &book.location)?;
+            badrequest!(Synopsis::to_disk(&synopsis, &book.location));
         }
         None => {}
     };
 
-    Ok("saved book".to_string())
+    HttpResponse::Ok().finish()
 }
 
 pub fn delete_file(info: Path<(String,)>) -> Result<String> {
+    // TODO: will have to delete from tree and synopsis
+    // unimplemented
     fs::remove_dir_all(&info.0).unwrap();
     Ok("deleted file".to_string())
 }
@@ -483,6 +496,7 @@ pub struct Save {
 }
 
 pub fn save(info: Json<Save>) -> Result<String> {
+    //TODO: not used
     let mut f = fs::File::create(&info.file).unwrap();
     f.write_all(&info.content.as_bytes()).unwrap();
     Ok("save file".to_string())
@@ -504,30 +518,21 @@ pub struct Author {
 }
 
 pub fn get_author(_req: &HttpRequest) -> impl Responder {
-    let xdg_dirs = BaseDirectories::with_prefix("collabook").unwrap();
-    match xdg_dirs.find_config_file("Config.toml") {
-        Some(config) => {
-            let mut file = fs::File::open(config).unwrap();
-            let mut contents = String::new();
-            file.read_to_string(&mut contents).unwrap();
-            let author: Author = toml::from_str(&contents).unwrap();
-            HttpResponse::Ok().json(author)
-        }
-        None => HttpResponse::NotFound().finish(),
-    }
+    let xdg_dirs = badrequest!(BaseDirectories::with_prefix("collabook"));
+    let config = none!(xdg_dirs.find_config_file("Config.toml"), "Could not find config file");
+    let mut file = badrequest!(fs::File::open(config));
+    let mut contents = String::new();
+    badrequest!(file.read_to_string(&mut contents));
+    let author: Author = badrequest!(toml::from_str(&contents));
+    HttpResponse::Ok().json(author)
 }
 
 pub fn create_author(info: Json<Author>) -> impl Responder {
-    let xdg_dirs = BaseDirectories::with_prefix("collabook").unwrap();
-    match xdg_dirs.place_config_file("Config.toml") {
-        Ok(path) => {
-            let author = info.into_inner();
-            println!("{:?}", author);
-            let contents = toml::to_string(&author).unwrap();
-            let mut file = fs::File::create(path).unwrap();
-            file.write_all(contents.as_bytes()).unwrap();
-            HttpResponse::Ok()
-        }
-        Err(_) => HttpResponse::BadRequest(),
-    }
+    let xdg_dirs = badrequest!(BaseDirectories::with_prefix("collabook"));
+    let path = badrequest!(xdg_dirs.place_config_file("Config.toml"));
+    let author = info.into_inner();
+    let contents = badrequest!(toml::to_string(&author));
+    let mut file = badrequest!(fs::File::create(path));
+    badrequest!(file.write_all(contents.as_bytes()));
+    HttpResponse::Ok().finish()
 }
