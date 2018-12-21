@@ -7,6 +7,7 @@ extern crate git2;
 extern crate serde_json;
 extern crate toml;
 extern crate xdg;
+extern crate tempdir;
 
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App};
@@ -25,8 +26,7 @@ fn main() {
         App::new().middleware(Logger::default()).configure(|app| {
             Cors::for_app(app)
                 .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
-                .allowed_origin("http://localhost:9080")
-                .supports_credentials()
+                .send_wildcard()
                 .max_age(3600)
                 .resource("/author", |r| {
                     r.method(http::Method::GET).f(book::get_author);

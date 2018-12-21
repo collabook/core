@@ -489,9 +489,18 @@ pub fn save(info: Json<Save>) -> Result<String> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "type", content="args")]
+pub enum AuthType {
+    Plain {user: String, pass: String},
+    SSHAgent,
+    SSHPath {path: String}
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Author {
     pub name: String,
     pub email: String,
+    pub auth: AuthType,
 }
 
 pub fn get_author(_req: &HttpRequest) -> impl Responder {
@@ -513,6 +522,7 @@ pub fn create_author(info: Json<Author>) -> impl Responder {
     match xdg_dirs.place_config_file("Config.toml") {
         Ok(path) => {
             let author = info.into_inner();
+            println!("{:?}", author);
             let contents = toml::to_string(&author).unwrap();
             let mut file = fs::File::create(path).unwrap();
             file.write_all(contents.as_bytes()).unwrap();

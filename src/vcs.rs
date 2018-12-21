@@ -4,8 +4,23 @@ use git2::Repository;
 use xdg::BaseDirectories;
 use std::fs;
 use std::io::prelude::*;
+use std::path;
 
 use book::*;
+
+macro_rules! badrequest {
+    ($expr:expr) => (match $expr {
+        Ok(val) => val,
+        Err(e) => return HttpResponse::BadRequest().body(format!("{}",e))
+    });
+}
+
+macro_rules! git2_error {
+    ($expr:expr) => (match $expr {
+        Ok(val) => val,
+        Err(e) => return Err(git2::Error::from_str(&format!("{}",e)))
+    });
+}
 
 /*
  *
@@ -168,11 +183,14 @@ pub struct GitRemoteAddRequest {
 }
 
 pub fn git_remote_add(info: Json<GitRemoteAddRequest>) -> impl Responder {
-    if let Ok(repo) = Repository::open(&info.location) {
-        repo.remote(&info.name, &info.url).unwrap();
-        HttpResponse::Ok()
-    } else {
-        HttpResponse::BadRequest()
+    match Repository::open(&info.location) {
+        Ok(repo) => {
+            match repo.remote(&info.name, &info.url) {
+                Ok(_) => HttpResponse::Ok().finish(),
+                Err(e) => HttpResponse::BadRequest().body(e.message().to_string())
+            }
+        },
+        Err(e) => HttpResponse::BadRequest().body(e.message().to_string())
     }
 }
 
@@ -183,32 +201,69 @@ pub struct GitPushRequest {
     name: String,
 }
 
-pub fn git_push(info: Json<GitPushRequest>) -> impl Responder {
-    if let Ok(repo) = Repository::open(&info.location) {
-        let mut remote = repo.find_remote(&info.name).unwrap();
+fn get_current_branch(repo: &Repository) -> Result<String, git2::Error> {
+    let branches = repo.branches(Some(git2::BranchType::Local))?;
+    for res_branch in branches {
+        let (branch, _) = res_branch?;
+        if branch.is_head() {
+            let name = branch.name()?;
+            match name {
+                Some(name) => return Ok(name.to_string()),
+                None => return Err(git2::Error::from_str("Invalid utf-8 name for branch"))
+            }
+        }
 
-        let mut push_opts = git2::PushOptions::new();
-        let mut remote_callbacks = git2::RemoteCallbacks::new();
-
-        remote_callbacks.credentials(move |user, user_from_url, _credtype| {
-            // TODO: first check the configuration Collabook.toml
-            // for how the user has setup authentication
-            // if plain text then its simple read the file for username and pass create Cred object
-            // otherwise figure out how to use ssh option
-            println!("before creating cred");
-            // let user = "collabooktest@gmail.com";
-            // let pass = "Qj3^gIKBg?,4";
-            // let cred = git2::Cred::userpass_plaintext(&user, &pass);
-            println!("{}", user);
-            let cred = git2::Cred::ssh_key_from_agent("git");
-            println!("{}", user_from_url.unwrap_or("no user from url"));
-            println!("after creating cred");
-            cred
-        });
-        push_opts.remote_callbacks(remote_callbacks);
-        remote.push(&["refs/heads/dev2:refs/heads/dev2"], Some(&mut push_opts)).unwrap();
-        HttpResponse::Ok()
-    } else {
-        HttpResponse::BadRequest()
     }
+    Err(git2::Error::from_str("Could not find current branch"))
+}
+
+
+pub fn git_push(info: Json<GitPushRequest>) -> impl Responder {
+    let repo = badrequest!(Repository::open(&info.location));
+
+    let branch_name = badrequest!(get_current_branch(&repo));
+
+    let mut remote = badrequest!(repo.find_remote(&info.name));
+
+    let mut push_opts = git2::PushOptions::new();
+    let mut remote_callbacks = git2::RemoteCallbacks::new();
+
+    remote_callbacks.credentials(move |_user, user_from_url, _credtype| {
+
+        let xdg_dir = git2_error!(BaseDirectories::with_prefix("collabook"));
+
+        let config_option = xdg_dir.find_config_file("Config.toml");
+        let config;
+        match config_option {
+            Some(c) => config = c,
+            None => return Err(git2::Error::from_str("Could not find config file"))
+        };
+
+
+        let mut file = git2_error!(fs::File::open(config));
+        let mut contents = String::new();
+        git2_error!(file.read_to_string(&mut contents));
+
+        let user: Author = git2_error!(toml::from_str(&contents));
+
+        match user.auth {
+            AuthType::Plain{ user, pass} => {
+                git2::Cred::userpass_plaintext(&user, &pass)
+            }
+            AuthType::SSHAgent => {
+                git2::Cred::ssh_key_from_agent(user_from_url.unwrap_or("git"))
+            }
+            AuthType::SSHPath{ path } => {
+                let path = path::Path::new(&path);
+                git2::Cred::ssh_key(user_from_url.unwrap_or("git"), None, &path, None)
+            }
+        }
+    });
+
+    push_opts.remote_callbacks(remote_callbacks);
+
+    let push_ref = format!("refs/heads/{0}:refs/heads/{0}", branch_name);
+
+    badrequest!(remote.push(&[&push_ref], Some(&mut push_opts)));
+    HttpResponse::Ok().finish()
 }
