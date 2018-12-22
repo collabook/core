@@ -1,455 +1,226 @@
-use actix_web::{HttpRequest, HttpResponse, Json, Path, Responder, Result};
+use actix_web::{HttpResponse, Json, Responder};
+use error::MyError;
+use sha1::Sha1;
 use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
-use std::path;
-use xdg::BaseDirectories;
+use std::path::PathBuf;
+use walkdir::WalkDir;
 
-use badrequest;
-use none;
-
-fn mkdirs(tree: &Tree, location: &str, name: &str) -> Result<()> {
-    for file in tree.0.values() {
-        if file.is_folder {
-            let mut path = path::PathBuf::from(location);
-
-            if name != "" {
-                path.push(name);
-            };
-
-            path.push(&file.full_path);
-            fs::create_dir_all(path)?;
-        }
-    }
-
-    for file in tree.0.values() {
-        if !file.is_folder {
-            let mut path = path::PathBuf::from(location);
-
-            if name != "" {
-                path.push(name);
-            };
-
-            path.push(&file.full_path);
-            fs::File::create(path)?;
-        }
-    }
-
-    Ok(())
-}
+//use std::path::Path;
+//use xdg::BaseDirectories;
+//use std::ffi::OsString;
+//use badrequest;
+//use none;
 
 #[derive(Serialize, Debug)]
 struct Book {
-    tree: Tree,
-    content: Content,
-    synopsis: Vec<Synopsis>,
-    location: String,
+    files: HashMap<String, File>,
+    location: PathBuf,
     name: String,
+}
+
+#[derive(Deserialize)]
+enum Genre {
+    Fantasy,
+    Fiction,
+    Academic,
 }
 
 #[allow(unused)]
 #[derive(Deserialize)]
-pub struct BookBuilder {
-    location: String,
+pub struct NewBookRequest {
+    location: PathBuf,
     name: String,
-    genre: String,
-}
-
-impl BookBuilder {
-    fn build(&self) -> Result<Book> {
-        let tree = TreeBuilder::new()
-            .name(&self.name)
-            .location(&self.location)
-            .genre(&self.genre)
-            .build();
-
-        let synopsis = Synopsis::from_tree(&tree)?;
-
-        let content = Content::from_tree(&tree);
-
-        Ok(Book {
-            location: self.location.clone(),
-            name: self.name.clone(),
-            tree,
-            content,
-            synopsis,
-        })
-    }
-}
-
-struct TreeBuilder {
-    name: Option<String>,
-    location: Option<String>,
-    genre: Option<String>,
-}
-
-impl TreeBuilder {
-    fn new() -> Self {
-        Self {
-            name: None,
-            location: None,
-            genre: None,
-        }
-    }
-
-    fn name(mut self, name: &str) -> Self {
-        self.name = Some(name.to_owned());
-        self
-    }
-
-    fn location(mut self, location: &str) -> Self {
-        self.location = Some(location.to_owned());
-        self
-    }
-
-    fn genre(mut self, genre: &str) -> Self {
-        self.genre = Some(genre.to_owned());
-        self
-    }
-
-    fn build(self) -> Tree {
-        Tree::from_builder(self)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Tree(HashMap<u32, File>);
-
-impl Tree {
-    fn from_builder(builder: TreeBuilder) -> Self {
-        let mut tree = HashMap::new();
-        let name = builder.name.expect("attempt to build tree without name"); // must be always set
-
-        let root = FileBuilder::new()
-            .id(1)
-            .name(&name)
-            .full_path("")
-            .parent(0)
-            .visible(true)
-            .folder(true)
-            .finish();
-        let book = FileBuilder::new()
-            .id(2)
-            .name("Book")
-            .full_path("Book")
-            .parent(1)
-            .visible(true)
-            .folder(true)
-            .finish();
-        let chap1 = FileBuilder::new()
-            .id(3)
-            .name("chap1")
-            .full_path("Book/chap1")
-            .parent(2)
-            .visible(true)
-            .folder(false)
-            .finish();
-        let chap2 = FileBuilder::new()
-            .id(4)
-            .name("chap2")
-            .full_path("Book/chap2")
-            .parent(2)
-            .visible(true)
-            .folder(false)
-            .finish();
-        let chap3 = FileBuilder::new()
-            .id(5)
-            .name("chap3")
-            .full_path("Book/chap3")
-            .parent(2)
-            .visible(true)
-            .folder(true)
-            .finish();
-        let sec1 = FileBuilder::new()
-            .id(6)
-            .name("sec1")
-            .full_path("Book/chap3/sec1")
-            .parent(5)
-            .visible(true)
-            .folder(false)
-            .finish();
-
-        let research = FileBuilder::new()
-            .id(7)
-            .name("Research")
-            .full_path("Research")
-            .parent(1)
-            .visible(true)
-            .folder(true)
-            .research(true)
-            .finish();
-        let chars = FileBuilder::new()
-            .id(8)
-            .name("chars")
-            .full_path("Research/chars")
-            .parent(7)
-            .visible(true)
-            .folder(false)
-            .research(true)
-            .finish();
-        let worlds = FileBuilder::new()
-            .id(9)
-            .name("worlds")
-            .full_path("Research/worlds")
-            .parent(7)
-            .visible(true)
-            .folder(false)
-            .research(true)
-            .finish();
-
-        tree.insert(root.id, root);
-
-        tree.insert(book.id, book);
-        tree.insert(chap1.id, chap1);
-        tree.insert(chap2.id, chap2);
-        tree.insert(chap3.id, chap3);
-        tree.insert(sec1.id, sec1);
-
-        tree.insert(research.id, research);
-        tree.insert(chars.id, chars);
-        tree.insert(worlds.id, worlds);
-
-        Tree(tree)
-    }
-
-    fn from_file(location: &str) -> Result<Self> {
-        let mut path = path::PathBuf::from(location);
-        path.push("tree.json");
-        let file = fs::File::open(&path)?;
-        Ok(Tree(serde_json::from_reader(file)?))
-    }
-
-    fn to_disk(&self, location: &str) -> Result<()> {
-        let mut path = path::PathBuf::from(location);
-        path.push("tree.json");
-        let mut file = fs::File::create(&path)?;
-        let tree = serde_json::to_string(&self)?;
-        file.write_all(tree.as_bytes())?;
-        Ok(())
-    }
+    genre: Genre,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 struct File {
-    id: u32,
+    id: String,
     name: String,
-    full_path: String,
-    parent: u32,
+    rel_path: PathBuf,
+    parent: String,
     is_visible: bool,
     is_folder: bool,
     is_research: bool,
+    content: Option<String>,
+    synopsis: String,
 }
 
-struct FileBuilder {
-    id: Option<u32>,
-    name: Option<String>,
-    full_path: Option<String>,
-    parent: Option<u32>,
-    is_visible: Option<bool>,
-    is_folder: Option<bool>,
-    is_research: Option<bool>,
-}
+impl File {
+    fn new(name: &str, rel_path: &str, parent: String, is_folder: bool, is_research: bool) -> Self {
+        let id = sha1::Sha1::from(rel_path).digest().to_string();
+        let content: Option<String>;
 
-impl FileBuilder {
-    fn new() -> Self {
-        Self {
-            id: None,
-            name: None,
-            full_path: None,
-            parent: None,
-            is_visible: None,
-            is_folder: None,
-            is_research: None,
+        if is_folder {
+            content = None;
+        } else {
+            content = Some("".to_string());
         }
-    }
 
-    fn id(mut self, id: u32) -> Self {
-        self.id = Some(id);
-        self
-    }
-
-    fn name(mut self, name: &str) -> Self {
-        self.name = Some(name.to_owned());
-        self
-    }
-
-    fn full_path(mut self, path: &str) -> Self {
-        self.full_path = Some(path.to_owned());
-        self
-    }
-
-    fn parent(mut self, parent: u32) -> Self {
-        self.parent = Some(parent);
-        self
-    }
-
-    fn visible(mut self, visible: bool) -> Self {
-        self.is_visible = Some(visible);
-        self
-    }
-
-    fn folder(mut self, folder: bool) -> Self {
-        self.is_folder = Some(folder);
-        self
-    }
-
-    fn research(mut self, research: bool) -> Self {
-        self.is_research = Some(research);
-        self
-    }
-
-    fn finish(self) -> File {
         File {
-            id: self.id.expect("id not set for file"),
-            name: self.name.expect("name not set for file"),
-            full_path: self.full_path.expect("full_path not set for file"),
-            parent: self.parent.expect("parent not set for file"),
-            is_visible: self.is_visible.expect("is_visible not set for file"),
-            is_folder: self.is_folder.expect("is_folder not set for file"),
-            is_research: self.is_research.unwrap_or(false),
+            id,
+            name: name.to_owned(),
+            rel_path: PathBuf::from(rel_path),
+            parent: parent.to_owned(),
+            is_visible: true,
+            is_folder,
+            is_research,
+            content,
+            synopsis: "".to_owned(),
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-struct Synopsis {
-    id: u32,
-    content: String,
+fn is_hidden(entry: &walkdir::DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map(|s| s.starts_with("."))
+        .unwrap_or(false)
 }
 
-impl Synopsis {
-    fn from_tree(tree: &Tree) -> Result<Vec<Self>> {
-        let mut vec_synopsis = Vec::new();
-        for id in tree.0.keys() {
-            vec_synopsis.push(Self {
-                id: *id,
-                content: "".to_string(),
-            });
+impl Book {
+    fn new(new_book_req: &NewBookRequest) -> Self {
+        let mut files = HashMap::new();
+        let root = File::new(&new_book_req.name, "", format!("0"), true, false);
+        let book = File::new("Book", "Book", root.id.clone(), true, false);
+        let chap1 = File::new("chap1", "Book/chap1", book.id.clone(), true, false);
+        let sec1 = File::new("sec1", "Book/chap1/sec1", chap1.id.clone(), false, false);
+        files.insert(root.id.clone(), root);
+        files.insert(book.id.clone(), book);
+        files.insert(chap1.id.clone(), chap1);
+        files.insert(sec1.id.clone(), sec1);
+
+        Book {
+            files,
+            location: new_book_req.location.clone(),
+            name: new_book_req.name.to_string(),
         }
-        Ok(vec_synopsis)
     }
 
-    fn from_file(location: &str) -> Result<Vec<Self>> {
-        let mut path = path::PathBuf::from(location);
-        path.push("synopsis.json");
-        let synopsis_file = fs::File::open(&path)?;
-        let ser_synopsis = serde_json::from_reader(synopsis_file)?;
-        Ok(ser_synopsis)
-    }
-
-    // vec synopsis and synopsis are not the same thing that is why this does not take self
-    fn to_disk(synopsis: &[Self], location: &str) -> Result<()> {
-        let ser_synopsis = serde_json::to_string(synopsis)?;
-        let mut path = path::PathBuf::from(location);
-        path.push("synopsis.json");
-        let mut file = fs::File::create(&path)?;
-        file.write_all(ser_synopsis.as_bytes())?;
-        Ok(())
-    }
-}
-
-// should also create an empty hashmap for content
-pub fn new_book(info: Json<BookBuilder>) -> impl Responder {
-    let book = badrequest!(info.build());
-
-    // must be a method of Book
-    badrequest!(mkdirs(&book.tree, &book.location, &book.name));
-
-    let mut path = path::PathBuf::from(&info.location);
-    path.push(&info.name);
-
-    // path is included here because name is not stored in book
-    let str_path = none!(path.to_str(), "Path contains invalid characters");
-    badrequest!(book.tree.to_disk(str_path));
-
-    badrequest!(Synopsis::to_disk(&book.synopsis, str_path));
-
-    let ser_book = badrequest!(serde_json::to_string(&book));
-    HttpResponse::Ok().body(ser_book)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Content(HashMap<u32, String>);
-
-impl Content {
-    fn from_tree(tree: &Tree) -> Self {
-        let mut content = HashMap::new();
-        for (id, file) in &tree.0 {
-            if !file.is_folder {
-                content.insert(id.clone(), String::new());
+    fn mkdirs(&self) -> Result<(), MyError> {
+        fs::create_dir_all(&self.location.join(".collabook/synopsis/"))?;
+        for file in self.files.values() {
+            let path = &self.location.join(&file.rel_path);
+            if file.is_folder {
+                fs::create_dir_all(&path)?;
+            } else {
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(&parent)?;
+                }
+                fs::File::create(path)?;
             }
-        }
-        Content(content)
-    }
 
-    fn from_disk(tree: &Tree, loc: &str) -> Result<Self> {
-        let mut content = HashMap::new();
-        for (id, file) in &tree.0 {
-            if !file.is_folder {
-                let mut buf = String::new();
-
-                let mut path = path::PathBuf::from(loc);
-                path.push(&file.full_path);
-                let mut f = fs::File::open(&path)?;
-                f.read_to_string(&mut buf)?;
-                content.insert(id.clone(), buf);
-            }
-        }
-        Ok(Content(content))
-    }
-
-    fn to_disk(&self, tree: &Tree, loc: &str) -> Result<()> {
-        for (id, file) in &tree.0 {
-            if let Some(current_content) = self.0.get(id) {
-                let location = format!("{}/{}", loc, file.full_path);
-                let mut f = fs::File::create(location)?;
-                f.write_all(current_content.as_bytes())?;
-            }
+            let synopsis_path = &self.location.join(".collabook/synopsis/").join(&file.id);
+            fs::File::create(synopsis_path)?;
         }
         Ok(())
     }
+
+    fn open(location: &PathBuf) -> Result<Self, MyError> {
+        let mut files: HashMap<String, File> = HashMap::new();
+
+        //check if is a collabook directory
+        //
+        if !&location.join(".collabook").exists() {
+            Err("Not a Collabook directory".to_string())?
+        }
+
+        let book_name = location
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("Filename contains invalid utf-8")?;
+
+        //read files from disk
+        for entry in WalkDir::new(&location)
+            .into_iter()
+            .filter_entry(|e| !is_hidden(e))
+            .filter_map(|e| e.ok())
+        {
+            let name = entry
+                .file_name()
+                .to_str()
+                .ok_or("Filename contains invalid utf-8")?;
+
+            let rel_path = entry.path().strip_prefix(&location)?;
+
+            let parent_id = match rel_path.parent() {
+                Some(parent) => parent
+                    .to_str()
+                    .ok_or("Filename contains invalid utf-8")
+                    .map(|par| Sha1::from(par).digest().to_string()),
+                None => Ok("0".to_string()),
+            }?;
+
+            let rel_path_str = rel_path.to_str().ok_or("Filename contains invalid utf-8")?;
+            let is_folder = entry.file_type().is_dir();
+            let is_research = rel_path.to_string_lossy().contains("Research");
+
+            //read contents
+            let mut content: Option<String>;
+            if entry.file_type().is_file() {
+                let mut data = String::new();
+                let mut file = fs::File::open(entry.path())?;
+                file.read_to_string(&mut data)?;
+                content = Some(data)
+            } else {
+                content = None
+            }
+
+            //read synopsis
+            let id = Sha1::from(rel_path_str).digest().to_string();
+            let mut syn_file = fs::File::open(&location.join(".collabook/synopsis").join(&id))?;
+            let mut synopsis = String::new();
+            syn_file.read_to_string(&mut synopsis)?;
+
+            let f = File {
+                id,
+                name: name.to_owned(),
+                rel_path: PathBuf::from(rel_path.clone()),
+                parent: parent_id,
+                is_visible: true,
+                is_folder,
+                is_research,
+                content,
+                synopsis,
+            };
+            files.insert(f.id.clone(), f);
+        }
+        Ok(Book {
+            files,
+            location: location.clone(),
+            name: book_name.to_string(),
+        })
+    }
+}
+
+pub fn new_book(info: Json<NewBookRequest>) -> Result<impl Responder, MyError> {
+    let book = Book::new(&info);
+    book.mkdirs()?;
+    let ser_book = serde_json::to_string(&book)?;
+    Ok(HttpResponse::Ok().body(ser_book))
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BookLocation {
-    // must contain bookname
-    pub location: String,
+    pub location: PathBuf,
 }
 
-pub fn open_book(info: Json<BookLocation>) -> impl Responder {
-    let tree = badrequest!(Tree::from_file(&info.location));
-
-    let synopsis = badrequest!(Synopsis::from_file(&info.location));
-
-    let content = badrequest!(Content::from_disk(&tree, &info.location));
-
-    let mut path = path::PathBuf::from(&info.location);
-
-    let path2 = path.clone();
-    let file_name = none!(path2.file_name().clone(), "Filename not present");
-    let name: String = none!(file_name.to_str(), "Filename contains invalid utf-8").to_owned();
-
-    path.pop(); // remove book name
-    let location = none!(path.to_str(), "Path contains invalid utf-8").to_owned();
-
-    let res_data = Book {
-        location,
-        name,
-        tree,
-        content,
-        synopsis,
-    };
-
-    let ser_res_data = badrequest!(serde_json::to_string(&res_data));
-    HttpResponse::Ok().body(ser_res_data)
+pub fn open_book(info: Json<BookLocation>) -> Result<impl Responder, MyError> {
+    let book = Book::open(&info.location)?;
+    let ser_book = serde_json::to_string(&book)?;
+    Ok(ser_book)
 }
 
+/*
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SaveBook {
     //location should include bookname
-    location: String,
-    tree: Tree,
+    location: PathBuf,
+    tree: Files,
     content: Option<Content>,
     synopsis: Option<Vec<Synopsis>>,
 }
@@ -461,13 +232,13 @@ pub fn save_book(book: Json<SaveBook>) -> impl Responder {
     let book_name: String = none!(file_name.to_str(), "Filename contains invalid utf-8").to_owned();
     path.pop();
 
-    badrequest!(mkdirs(&book.tree, &none!(path.to_str(), "Path contains invalid utf-8"), &book_name));
+    badrequest!(mkdirs(&book.tree, &path));
 
     badrequest!(book.tree.to_disk(&book.location));
 
     match &book.content {
         Some(content) => {
-            badrequest!(content.to_disk(&book.tree, &book.location));
+            badrequest!(content.to_disk(&book.files, &book.location));
         }
         None => {}
     };
@@ -536,3 +307,4 @@ pub fn create_author(info: Json<Author>) -> impl Responder {
     badrequest!(file.write_all(contents.as_bytes()));
     HttpResponse::Ok().finish()
 }
+*/

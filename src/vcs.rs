@@ -1,15 +1,15 @@
 use actix_web::{HttpResponse, Json, Responder, Result};
 use chrono::prelude::*;
 use git2::Repository;
-use xdg::BaseDirectories;
 use std::fs;
 use std::io::prelude::*;
 use std::path;
+use xdg::BaseDirectories;
 
-use book::*;
 use badrequest;
-use none;
+use book::*;
 use git2_error;
+use none;
 
 /*
  *
@@ -154,7 +154,6 @@ pub fn git_remote_add(info: Json<GitRemoteAddRequest>) -> impl Responder {
     HttpResponse::Ok().finish()
 }
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitPushRequest {
     location: String,
@@ -169,14 +168,12 @@ fn get_current_branch(repo: &Repository) -> Result<String, git2::Error> {
             let name = branch.name()?;
             match name {
                 Some(name) => return Ok(name.to_string()),
-                None => return Err(git2::Error::from_str("Invalid utf-8 name for branch"))
+                None => return Err(git2::Error::from_str("Invalid utf-8 name for branch")),
             }
         }
-
     }
     Err(git2::Error::from_str("Could not find current branch"))
 }
-
 
 pub fn git_push(info: Json<GitPushRequest>) -> impl Responder {
     let repo = badrequest!(Repository::open(&info.location));
@@ -189,16 +186,14 @@ pub fn git_push(info: Json<GitPushRequest>) -> impl Responder {
     let mut remote_callbacks = git2::RemoteCallbacks::new();
 
     remote_callbacks.credentials(move |_user, user_from_url, _credtype| {
-
         let xdg_dir = git2_error!(BaseDirectories::with_prefix("collabook"));
 
         let config_option = xdg_dir.find_config_file("Config.toml");
         let config;
         match config_option {
             Some(c) => config = c,
-            None => return Err(git2::Error::from_str("Could not find config file"))
+            None => return Err(git2::Error::from_str("Could not find config file")),
         };
-
 
         let mut file = git2_error!(fs::File::open(config));
         let mut contents = String::new();
@@ -207,13 +202,9 @@ pub fn git_push(info: Json<GitPushRequest>) -> impl Responder {
         let user: Author = git2_error!(toml::from_str(&contents));
 
         match user.auth {
-            AuthType::Plain{ user, pass} => {
-                git2::Cred::userpass_plaintext(&user, &pass)
-            }
-            AuthType::SSHAgent => {
-                git2::Cred::ssh_key_from_agent(user_from_url.unwrap_or("git"))
-            }
-            AuthType::SSHPath{ path } => {
+            AuthType::Plain { user, pass } => git2::Cred::userpass_plaintext(&user, &pass),
+            AuthType::SSHAgent => git2::Cred::ssh_key_from_agent(user_from_url.unwrap_or("git")),
+            AuthType::SSHPath { path } => {
                 let path = path::Path::new(&path);
                 git2::Cred::ssh_key(user_from_url.unwrap_or("git"), None, &path, None)
             }
