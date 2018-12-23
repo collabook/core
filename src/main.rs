@@ -39,6 +39,9 @@ fn main() {
                 .resource("/openbook", |r| {
                     r.method(http::Method::POST).with(open_book)
                 })
+                .resource("/newfile", |r| r.method(http::Method::POST).with(new_file))
+                .resource("/savefile", |r| r.method(http::Method::POST).with(save_file))
+                .resource("/savesynopsis", |r| r.method(http::Method::POST).with(save_synopsis))
                 //.resource("/savebook", |r| {
                 //    r.method(http::Method::POST).with(save_book)
                 //})

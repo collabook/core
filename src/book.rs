@@ -215,6 +215,61 @@ pub fn open_book(info: Json<BookLocation>) -> Result<impl Responder, MyError> {
     Ok(ser_book)
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NewFileRequest {
+    parent_id: String,
+    name: String,
+    is_folder: bool,
+    location: PathBuf,
+    parent_rel_path: PathBuf
+}
+
+pub fn new_file(info: Json<NewFileRequest>) -> Result<impl Responder, MyError> {
+    let rel_path = &info.parent_rel_path.join(&info.name);
+    let rel_path_str = rel_path.to_str().ok_or("Filename contains invalid utf-8")?;
+    let id = Sha1::from(rel_path_str).digest().to_string();
+
+    let is_research = rel_path.to_string_lossy().contains("Research");
+
+    let content: Option<String>;
+    if info.is_folder {
+        fs::create_dir_all(&info.location.join(&rel_path))?;
+        content =  None;
+    } else {
+        fs::File::create(&info.location.join(&rel_path))?;
+        content = Some("".to_string());
+    }
+    fs::File::create(&info.location.join(".collabook/synopsis").join(&id))?;
+    let f = File {id, name: info.name.clone(), rel_path: rel_path.clone(), parent: info.parent_id.clone() , is_visible: true, is_folder: info.is_folder, is_research, content , synopsis: "".to_string()};
+    let ser_f = serde_json::to_string(&f)?;
+    Ok(HttpResponse::Ok().body(ser_f))
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SaveFileRequest {
+    rel_path: PathBuf,
+    content: String,
+    location: PathBuf,
+}
+
+pub fn save_file(info: Json<SaveFileRequest>) -> Result<impl Responder, MyError> {
+    let mut file = fs::File::create(&info.location.join(&info.rel_path))?;
+    file.write_all(info.content.as_bytes())?;
+    Ok(HttpResponse::Ok())
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SaveSynopsisRequest {
+    location: PathBuf,
+    synopsis: String,
+    id: String,
+}
+
+pub fn save_synopsis(info: Json<SaveSynopsisRequest>) -> Result<impl Responder, MyError> {
+    let mut file = fs::File::create(&info.location.join(".collabook/synopsis").join(&info.id))?;
+    file.write_all(info.synopsis.as_bytes())?;
+    Ok(HttpResponse::Ok())
+}
 /*
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SaveBook {
