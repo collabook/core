@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse, Json, Responder};
+use actix_web::{HttpRequest, HttpResponse, Json, Responder};
 use error::MyError;
 use sha1::Sha1;
 use std::collections::HashMap;
@@ -6,12 +6,7 @@ use std::fs;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use walkdir::WalkDir;
-
-//use std::path::Path;
-//use xdg::BaseDirectories;
-//use std::ffi::OsString;
-//use badrequest;
-//use none;
+use xdg::BaseDirectories;
 
 #[derive(Serialize, Debug)]
 struct Book {
@@ -221,7 +216,7 @@ pub struct NewFileRequest {
     name: String,
     is_folder: bool,
     location: PathBuf,
-    parent_rel_path: PathBuf
+    parent_rel_path: PathBuf,
 }
 
 pub fn new_file(info: Json<NewFileRequest>) -> Result<impl Responder, MyError> {
@@ -234,13 +229,23 @@ pub fn new_file(info: Json<NewFileRequest>) -> Result<impl Responder, MyError> {
     let content: Option<String>;
     if info.is_folder {
         fs::create_dir_all(&info.location.join(&rel_path))?;
-        content =  None;
+        content = None;
     } else {
         fs::File::create(&info.location.join(&rel_path))?;
         content = Some("".to_string());
     }
     fs::File::create(&info.location.join(".collabook/synopsis").join(&id))?;
-    let f = File {id, name: info.name.clone(), rel_path: rel_path.clone(), parent: info.parent_id.clone() , is_visible: true, is_folder: info.is_folder, is_research, content , synopsis: "".to_string()};
+    let f = File {
+        id,
+        name: info.name.clone(),
+        rel_path: rel_path.clone(),
+        parent: info.parent_id.clone(),
+        is_visible: true,
+        is_folder: info.is_folder,
+        is_research,
+        content,
+        synopsis: "".to_string(),
+    };
     let ser_f = serde_json::to_string(&f)?;
     Ok(HttpResponse::Ok().body(ser_f))
 }
@@ -270,49 +275,23 @@ pub fn save_synopsis(info: Json<SaveSynopsisRequest>) -> Result<impl Responder, 
     file.write_all(info.synopsis.as_bytes())?;
     Ok(HttpResponse::Ok())
 }
-/*
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SaveBook {
-    //location should include bookname
+
+#[derive(Deserialize, Debug)]
+pub struct DeleteFileRequest {
     location: PathBuf,
-    tree: Files,
-    content: Option<Content>,
-    synopsis: Option<Vec<Synopsis>>,
+    rel_path: PathBuf,
+    id: String,
 }
 
-pub fn save_book(book: Json<SaveBook>) -> impl Responder {
-    let mut path = path::PathBuf::from(&book.location);
-    let path2 = path.clone();
-    let file_name = none!(path2.file_name().clone(), "Filename not present");
-    let book_name: String = none!(file_name.to_str(), "Filename contains invalid utf-8").to_owned();
-    path.pop();
-
-    badrequest!(mkdirs(&book.tree, &path));
-
-    badrequest!(book.tree.to_disk(&book.location));
-
-    match &book.content {
-        Some(content) => {
-            badrequest!(content.to_disk(&book.files, &book.location));
-        }
-        None => {}
-    };
-
-    match &book.synopsis {
-        Some(synopsis) => {
-            badrequest!(Synopsis::to_disk(&synopsis, &book.location));
-        }
-        None => {}
-    };
-
-    HttpResponse::Ok().finish()
-}
-
-pub fn delete_file(info: Path<(String,)>) -> Result<String> {
-    // TODO: will have to delete from tree and synopsis
-    // unimplemented
-    fs::remove_dir_all(&info.0).unwrap();
-    Ok("deleted file".to_string())
+pub fn delete_file(info: Json<DeleteFileRequest>) -> Result<impl Responder, MyError> {
+    let path = &info.location.join(&info.rel_path);
+    if path.is_dir() {
+        fs::remove_dir_all(&path)?;
+    } else {
+        fs::remove_file(&path)?;
+    }
+    fs::remove_file(&info.location.join(".collabook/synopsis").join(&info.id))?;
+    Ok("Deleted file".to_string())
 }
 
 #[derive(Deserialize, Debug)]
@@ -321,19 +300,12 @@ pub struct Save {
     file: String,
 }
 
-pub fn save(info: Json<Save>) -> Result<String> {
-    //TODO: not used
-    let mut f = fs::File::create(&info.file).unwrap();
-    f.write_all(&info.content.as_bytes()).unwrap();
-    Ok("save file".to_string())
-}
-
 #[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type", content="args")]
+#[serde(tag = "type", content = "args")]
 pub enum AuthType {
-    Plain {user: String, pass: String},
+    Plain { user: String, pass: String },
     SSHAgent,
-    SSHPath {path: String}
+    SSHPath { path: String },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -343,23 +315,24 @@ pub struct Author {
     pub auth: AuthType,
 }
 
-pub fn get_author(_req: &HttpRequest) -> impl Responder {
-    let xdg_dirs = badrequest!(BaseDirectories::with_prefix("collabook"));
-    let config = none!(xdg_dirs.find_config_file("Config.toml"), "Could not find config file");
-    let mut file = badrequest!(fs::File::open(config));
+pub fn get_author(_req: &HttpRequest) -> Result<impl Responder, MyError> {
+    let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
+    let config = xdg_dirs
+        .find_config_file("Config.toml")
+        .ok_or("Could not find config file")?;
+    let mut file = fs::File::open(config)?;
     let mut contents = String::new();
-    badrequest!(file.read_to_string(&mut contents));
-    let author: Author = badrequest!(toml::from_str(&contents));
-    HttpResponse::Ok().json(author)
+    file.read_to_string(&mut contents)?;
+    let author: Author = toml::from_str(&contents)?;
+    Ok(HttpResponse::Ok().json(author))
 }
 
-pub fn create_author(info: Json<Author>) -> impl Responder {
-    let xdg_dirs = badrequest!(BaseDirectories::with_prefix("collabook"));
-    let path = badrequest!(xdg_dirs.place_config_file("Config.toml"));
+pub fn create_author(info: Json<Author>) -> Result<impl Responder, MyError> {
+    let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
+    let path = xdg_dirs.place_config_file("Config.toml")?;
     let author = info.into_inner();
-    let contents = badrequest!(toml::to_string(&author));
-    let mut file = badrequest!(fs::File::create(path));
-    badrequest!(file.write_all(contents.as_bytes()));
-    HttpResponse::Ok().finish()
+    let contents = toml::to_string(&author)?;
+    let mut file = fs::File::create(path)?;
+    file.write_all(contents.as_bytes())?;
+    Ok(HttpResponse::Ok().finish())
 }
-*/

@@ -55,3 +55,27 @@ impl From<serde_json::Error> for MyError {
         MyError(e.to_string())
     }
 }
+
+impl From<xdg::BaseDirectoriesError> for MyError {
+    fn from(e: xdg::BaseDirectoriesError) -> MyError {
+        MyError(e.to_string())
+    }
+}
+
+impl From<toml::de::Error> for MyError {
+    fn from(e: toml::de::Error) -> MyError {
+        MyError(e.to_string())
+    }
+}
+
+impl From<toml::ser::Error> for MyError {
+    fn from(e: toml::ser::Error) -> MyError {
+        MyError(e.to_string())
+    }
+}
+
+impl From<git2::Error> for MyError {
+    fn from(e: git2::Error) -> MyError {
+        MyError(e.message().to_string())
+    }
+}

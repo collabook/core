@@ -14,12 +14,12 @@ extern crate xdg;
 mod book;
 mod error;
 mod macros;
-//mod vcs;
+mod vcs;
 
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App};
 use book::*;
-//use vcs::*;
+use vcs::*;
 
 // websockets might be a better idea
 fn main() {
@@ -31,37 +31,37 @@ fn main() {
                 .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
                 .send_wildcard()
                 .max_age(3600)
-                //.resource("/author", |r| {
-                //    r.method(http::Method::GET).f(book::get_author);
-                //    r.method(http::Method::POST).with(create_author);
-                //})
+                .resource("/author", |r| {
+                    r.method(http::Method::GET).f(book::get_author);
+                    r.method(http::Method::POST).with(create_author);
+                })
                 .resource("/newbook", |r| r.method(http::Method::POST).with(new_book))
                 .resource("/openbook", |r| {
                     r.method(http::Method::POST).with(open_book)
                 })
                 .resource("/newfile", |r| r.method(http::Method::POST).with(new_file))
-                .resource("/savefile", |r| r.method(http::Method::POST).with(save_file))
-                .resource("/savesynopsis", |r| r.method(http::Method::POST).with(save_synopsis))
-                //.resource("/savebook", |r| {
-                //    r.method(http::Method::POST).with(save_book)
-                //})
-                //.resource("/save", |r| r.method(http::Method::POST).with(save))
-                //.resource("/delete", |r| {
-                //    r.method(http::Method::POST).with(delete_file)
-                //})
-                //.resource("/gitinit", |r| r.method(http::Method::POST).with(git_init))
-                //.resource("/gitadd", |r| r.method(http::Method::POST).with(git_add))
-                //.resource("/gitcommit", |r| {
-                //    r.method(http::Method::POST).with(git_commit)
-                //})
-                //.resource("/gitlog", |r| r.method(http::Method::POST).with(git_log))
-                //.resource("/gitcheckout", |r| {
-                //    r.method(http::Method::POST).with(git_checkout)
-                //})
-                //.resource("/gitremoteadd", |r| {
-                //    r.method(http::Method::POST).with(git_remote_add)
-                //})
-                //.resource("/gitpush", |r| r.method(http::Method::POST).with(git_push))
+                .resource("/savefile", |r| {
+                    r.method(http::Method::POST).with(save_file)
+                })
+                .resource("/deletefile", |r| {
+                    r.method(http::Method::POST).with(delete_file)
+                })
+                .resource("/savesynopsis", |r| {
+                    r.method(http::Method::POST).with(save_synopsis)
+                })
+                .resource("/gitinit", |r| r.method(http::Method::POST).with(git_init))
+                .resource("/gitadd", |r| r.method(http::Method::POST).with(git_add))
+                .resource("/gitcommit", |r| {
+                    r.method(http::Method::POST).with(git_commit)
+                })
+                .resource("/gitlog", |r| r.method(http::Method::POST).with(git_log))
+                .resource("/gitcheckout", |r| {
+                    r.method(http::Method::POST).with(git_checkout)
+                })
+                .resource("/gitremoteadd", |r| {
+                    r.method(http::Method::POST).with(git_remote_add)
+                })
+                .resource("/gitpush", |r| r.method(http::Method::POST).with(git_push))
                 .register()
         })
     })
