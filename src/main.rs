@@ -49,8 +49,7 @@ fn main() {
                 .resource("/savesynopsis", |r| {
                     r.method(http::Method::POST).with(save_synopsis)
                 })
-                .resource("/gitinit", |r| r.method(http::Method::POST).with(git_init))
-                .resource("/gitadd", |r| r.method(http::Method::POST).with(git_add))
+                //.resource("/gitadd", |r| r.method(http::Method::POST).with(git_add_all))
                 .resource("/gitcommit", |r| {
                     r.method(http::Method::POST).with(git_commit)
                 })
@@ -58,10 +57,14 @@ fn main() {
                 .resource("/gitcheckout", |r| {
                     r.method(http::Method::POST).with(git_checkout)
                 })
+                //.resource("/gitgetremotes", |r| r.method(http::Method::POST).with(git_get_remotes))
                 .resource("/gitremoteadd", |r| {
                     r.method(http::Method::POST).with(git_remote_add)
                 })
                 .resource("/gitpush", |r| r.method(http::Method::POST).with(git_push))
+                .resource("/gitpull", |r| r.method(http::Method::POST).with(git_pull))
+                .resource("/gitswitchbranch", |r| r.method(http::Method::POST).with(git_switch_branch))
+                .resource("/gitcreatebranch", |r| r.method(http::Method::POST).with(git_create_branch))
                 .register()
         })
     })

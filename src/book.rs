@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
 use std::path::PathBuf;
+use vcs::*;
 use walkdir::WalkDir;
 use xdg::BaseDirectories;
 
@@ -13,9 +14,11 @@ struct Book {
     files: HashMap<String, File>,
     location: PathBuf,
     name: String,
+    remotes: Vec<String>,
+    branches: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 enum Genre {
     Fantasy,
     Fiction,
@@ -23,7 +26,7 @@ enum Genre {
 }
 
 #[allow(unused)]
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NewBookRequest {
     location: PathBuf,
     name: String,
@@ -78,7 +81,7 @@ fn is_hidden(entry: &walkdir::DirEntry) -> bool {
 }
 
 impl Book {
-    fn new(new_book_req: &NewBookRequest) -> Self {
+    fn new(new_book_req: &NewBookRequest) -> Result<Self, MyError> {
         let mut files = HashMap::new();
         let root = File::new(&new_book_req.name, "", format!("0"), true, false);
         let book = File::new("Book", "Book", root.id.clone(), true, false);
@@ -89,11 +92,17 @@ impl Book {
         files.insert(chap1.id.clone(), chap1);
         files.insert(sec1.id.clone(), sec1);
 
-        Book {
+        let repo = git_init(&new_book_req.location)?;
+        let remotes = git_get_remotes(&repo)?;
+        let branches = git_get_branches(&repo)?;
+
+        Ok(Book {
             files,
             location: new_book_req.location.clone(),
             name: new_book_req.name.to_string(),
-        }
+            remotes,
+            branches,
+        })
     }
 
     fn mkdirs(&self) -> Result<(), MyError> {
@@ -184,16 +193,22 @@ impl Book {
             };
             files.insert(f.id.clone(), f);
         }
+
+        let repo = git2::Repository::open(&location)?;
+        let remotes = git_get_remotes(&repo)?;
+        let branches = git_get_branches(&repo)?;
         Ok(Book {
             files,
             location: location.clone(),
             name: book_name.to_string(),
+            remotes,
+            branches
         })
     }
 }
 
 pub fn new_book(info: Json<NewBookRequest>) -> Result<impl Responder, MyError> {
-    let book = Book::new(&info);
+    let book = Book::new(&info)?;
     book.mkdirs()?;
     let ser_book = serde_json::to_string(&book)?;
     Ok(HttpResponse::Ok().body(ser_book))
@@ -250,7 +265,7 @@ pub fn new_file(info: Json<NewFileRequest>) -> Result<impl Responder, MyError> {
     Ok(HttpResponse::Ok().body(ser_f))
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SaveFileRequest {
     rel_path: PathBuf,
     content: String,
@@ -263,7 +278,7 @@ pub fn save_file(info: Json<SaveFileRequest>) -> Result<impl Responder, MyError>
     Ok(HttpResponse::Ok())
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SaveSynopsisRequest {
     location: PathBuf,
     synopsis: String,
@@ -294,7 +309,7 @@ pub fn delete_file(info: Json<DeleteFileRequest>) -> Result<impl Responder, MyEr
     Ok("Deleted file".to_string())
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Save {
     content: String,
     file: String,
@@ -316,14 +331,7 @@ pub struct Author {
 }
 
 pub fn get_author(_req: &HttpRequest) -> Result<impl Responder, MyError> {
-    let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
-    let config = xdg_dirs
-        .find_config_file("Config.toml")
-        .ok_or("Could not find config file")?;
-    let mut file = fs::File::open(config)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    let author: Author = toml::from_str(&contents)?;
+    let author = get_user_config()?;
     Ok(HttpResponse::Ok().json(author))
 }
 
@@ -335,4 +343,31 @@ pub fn create_author(info: Json<Author>) -> Result<impl Responder, MyError> {
     let mut file = fs::File::create(path)?;
     file.write_all(contents.as_bytes())?;
     Ok(HttpResponse::Ok().finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{http, test::TestServer, App};
+    use tempdir::TempDir;
+
+    fn create_app() -> App {
+        App::new().resource("/newbook", |r| r.with(new_book))
+    }
+
+    #[test]
+    fn it_works() {
+        let temp_dir = TempDir::new("test_data").unwrap();
+        let mut srv = TestServer::with_factory(create_app);
+        let request = srv
+            .client(http::Method::POST, "/newbook")
+            .json(NewBookRequest {
+                name: "MyTestBook".to_string(),
+                location: PathBuf::from(temp_dir.path()),
+                genre: Genre::Fantasy,
+            })
+            .unwrap();
+        let resp = srv.execute(request.send()).unwrap();
+        assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    }
 }
