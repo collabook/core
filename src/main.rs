@@ -1,15 +1,5 @@
-extern crate actix_web;
 #[macro_use]
 extern crate serde_derive;
-extern crate chrono;
-extern crate env_logger;
-extern crate git2;
-extern crate serde_json;
-extern crate sha1;
-extern crate tempdir;
-extern crate toml;
-extern crate walkdir;
-extern crate xdg;
 
 mod book;
 mod error;
@@ -18,8 +8,8 @@ mod vcs;
 
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App};
-use book::*;
-use vcs::*;
+use crate::book::*;
+use crate::vcs::*;
 
 // websockets might be a better idea
 fn main() {

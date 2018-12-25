@@ -7,9 +7,9 @@ use std::path;
 use std::path::PathBuf;
 use xdg::BaseDirectories;
 
-use book::*;
-use error::MyError;
-use git2_error;
+use crate::book::*;
+use crate::error::MyError;
+use crate::git2_error;
 
 pub fn git_init(location: &PathBuf) -> Result<Repository, MyError> {
     Ok(Repository::init(&location)?)

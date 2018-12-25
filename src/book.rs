@@ -1,11 +1,11 @@
 use actix_web::{HttpRequest, HttpResponse, Json, Responder};
-use error::MyError;
+use crate::error::MyError;
 use sha1::Sha1;
 use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
 use std::path::PathBuf;
-use vcs::*;
+use crate::vcs::*;
 use walkdir::WalkDir;
 use xdg::BaseDirectories;
 
