@@ -119,11 +119,6 @@ pub fn git_checkout(info: Json<GitCheckoutRequest>) -> Result<impl Responder, My
     Ok(HttpResponse::Ok())
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct GitGetRemotesRequest {
-    location: PathBuf,
-}
-
 pub fn git_get_remotes(repo: &Repository) -> Result<Vec<String>, MyError> {
     let mut remotes: Vec<String> = Vec::new();
     for remote in repo.remotes()?.iter() {
@@ -258,10 +253,30 @@ pub fn git_push(info: Json<GitPushRequest>) -> Result<impl Responder, MyError> {
     //figure out if this is the case.
     //ignoring result for now
     remote.fetch(&[&branch_name], None, None)?;
-    git_rebase(&repo, &info.name, &branch_name);
+
+
+    match git_rebase(&repo, Some(&info.name), Some(&branch_name)) {
+        Err(ref e) if e.0 == "unstaged changes exist in workdir" => {
+            Err("A conflict seems to have arised. Resolve conflicts and click continue rebase")
+        },
+        Err(ref e) => Err(e.0.as_ref()),
+        _ => Ok(())
+    }?;
 
     remote.push(&[&push_ref], Some(&mut push_opts))?;
 
+    Ok(HttpResponse::Ok())
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Location {
+    loc: path::PathBuf,
+}
+
+
+pub fn git_rebase_continue(info: Json<Location>) -> Result<impl Responder, MyError> {
+    let repo = Repository::open(&info.loc)?;
+    git_rebase(&repo, None, None)?;
     Ok(HttpResponse::Ok())
 }
 
@@ -276,33 +291,51 @@ pub fn git_pull(info: Json<GitPullRequest>) -> Result<impl Responder, MyError> {
     let current_branch = get_current_branch(&repo)?;
     repo.find_remote(&info.name)?
         .fetch(&[&current_branch], None, None)?;
-    git_rebase(&repo, &info.name, &current_branch)?;
+    git_rebase(&repo, Some(&info.name), Some(&current_branch))?;
     Ok(HttpResponse::Ok())
 }
 
 pub fn git_rebase(
     repo: &Repository,
-    remote_name: &str,
-    current_branch: &str,
+    remote_name: Option<&str>,
+    current_branch: Option<&str>,
 ) -> Result<(), MyError> {
-    let ref_branch = repo.find_reference(&format!("refs/heads/{}", current_branch))?;
-    let branch = repo.reference_to_annotated_commit(&ref_branch)?;
+    //check if repo state is Rebase
+    //if it is not in rebase state then remote name and currentbranch should be present, do init rebase
+    //if it is already in rebase state then add index and try to commit and call next
 
-    let ref_upstream =
-        repo.find_reference(&format!("refs/remotes/{}/{}", remote_name, current_branch))?;
-    let upstream = repo.reference_to_annotated_commit(&ref_upstream)?;
-
-    let mut rebase = repo.rebase(Some(&branch), Some(&upstream), None, None)?;
-
-    while let Some(Ok(patch)) = rebase.next() {
-        let commit = repo.find_commit(patch.id())?;
-        let message = commit.message().unwrap_or("");
-        let sig = commit.author();
-        rebase.commit(&sig, &sig, message)?;
+    let mut rebase;
+    println!("{:?}", repo.state());
+    match repo.state() {
+        git2::RepositoryState::RebaseMerge => {
+            git_add_all(&repo)?;
+            rebase = repo.open_rebase(None)?;
+            let op_current_index = rebase.operation_current().ok_or("Could not find current operation")?;
+            let op = rebase.nth(op_current_index).ok_or("Could not get current patch")?;
+            let commit = repo.find_commit(op.id())?;
+            let msg = commit.message().unwrap_or("");
+            let sig = commit.author();
+            rebase.commit(&sig, &sig, msg)?;
+        },
+        _ => {
+            let ref_branch = repo.find_reference(&format!("refs/heads/{}", current_branch.unwrap()))?;
+            let branch = repo.reference_to_annotated_commit(&ref_branch)?;
+            let ref_upstream = repo.find_reference(&format!("refs/remotes/{}/{}", remote_name.unwrap(), current_branch.unwrap()))?;
+            let upstream = repo.reference_to_annotated_commit(&ref_upstream)?;
+            rebase = repo.rebase(Some(&branch), Some(&upstream), None, None)?;
+        }
     }
 
-    //not sure why this is needed should probably use author config data here
+
+    while let Some(Ok(op)) = rebase.next() {
+        let commit = repo.find_commit(op.id())?;
+        let msg = commit.message().unwrap_or("");
+        let sig = commit.author();
+        rebase.commit(&sig, &sig, msg)?;
+    }
+
+    //TODO: not sure why this is needed should probably use author config data here
     let random_sig = git2::Signature::now("rebaseauthor", "rebasemail")?;
-    rebase.finish(&random_sig)?;
+    rebase.finish(&random_sig)?;;
     Ok(())
 }

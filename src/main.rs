@@ -55,6 +55,7 @@ fn main() {
                 .resource("/gitpull", |r| r.method(http::Method::POST).with(git_pull))
                 .resource("/gitswitchbranch", |r| r.method(http::Method::POST).with(git_switch_branch))
                 .resource("/gitcreatebranch", |r| r.method(http::Method::POST).with(git_create_branch))
+                .resource("/gitrebasecontinue", |r| r.method(http::Method::POST).with(git_rebase_continue))
                 .register()
         })
     })
