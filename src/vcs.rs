@@ -6,6 +6,7 @@ use std::io::prelude::*;
 use std::path;
 use std::path::PathBuf;
 use xdg::BaseDirectories;
+use std::path::Path;
 
 use crate::book::*;
 use crate::error::MyError;
@@ -23,29 +24,24 @@ pub fn git_add_all(repo: &Repository) -> Result<git2::Index, MyError> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct CommitRequest {
+pub struct CommitRequest<T: AsRef<Path>> {
     message: String,
-    location: String,
+    location: T,
 }
 
-pub fn get_user_config() -> Result<Author, MyError> {
-    let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
-    let path = xdg_dirs
-        .find_config_file("Config.toml")
-        .ok_or("Config not found")?;
-    let mut file = fs::File::open(path)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    Ok(toml::from_str(&contents)?)
-}
 
-pub fn git_commit(info: Json<CommitRequest>) -> Result<impl Responder, MyError> {
+pub fn git_commit<T: AsRef<Path>>(info: Json<CommitRequest<T>>) -> Result<impl Responder, MyError> {
+
+    if &info.message == "" {
+        return Err(MyError("Empty commit message".to_string()))
+    }
+
     let repo = Repository::open(&info.location)?;
 
     let mut index = git_add_all(&repo)?;
 
     // git commit -m "message"
-    let author = get_user_config()?;
+    let author = Author::read_from_disk()?;
     let sig = git2::Signature::now(&author.name, &author.email)?;
 
     let id = index.write_tree()?;
@@ -73,7 +69,7 @@ struct CustomCommit {
     time: String,
 }
 
-pub fn git_log(info: Json<BookLocation>) -> Result<impl Responder, MyError> {
+pub fn git_log<T: AsRef<Path>>(info: Json<BookLocation<T>>) -> Result<impl Responder, MyError> {
     let repo = Repository::open(&info.location)?;
     let mut walk = repo.revwalk()?;
 
@@ -142,12 +138,12 @@ pub fn git_get_branches(repo: &Repository) -> Result<Vec<String>, MyError> {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct GitSwitchBranch {
+pub struct GitSwitchBranch<P: AsRef<Path>>{
     name: String,
-    location: PathBuf,
+    location: P,
 }
 
-pub fn git_switch_branch(info: Json<GitSwitchBranch>) -> Result<impl Responder, MyError> {
+pub fn git_switch_branch<P: AsRef<Path>>(info: Json<GitSwitchBranch<P>>) -> Result<impl Responder, MyError> {
     let repo = Repository::open(&info.location)?;
     repo.set_head(&format!("refs/heads/{}", info.name))?;
     Ok(HttpResponse::Ok())
@@ -270,12 +266,15 @@ pub fn git_push(info: Json<GitPushRequest>) -> Result<impl Responder, MyError> {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Location {
-    loc: path::PathBuf,
+    location: path::PathBuf,
 }
 
 
 pub fn git_rebase_continue(info: Json<Location>) -> Result<impl Responder, MyError> {
-    let repo = Repository::open(&info.loc)?;
+    let repo = Repository::open(&info.location)?;
+    if repo.state() != git2::RepositoryState::RebaseMerge {
+        return Err(MyError("Rebase is not in progress".to_string()))
+    }
     git_rebase(&repo, None, None)?;
     Ok(HttpResponse::Ok())
 }
@@ -300,12 +299,7 @@ pub fn git_rebase(
     remote_name: Option<&str>,
     current_branch: Option<&str>,
 ) -> Result<(), MyError> {
-    //check if repo state is Rebase
-    //if it is not in rebase state then remote name and currentbranch should be present, do init rebase
-    //if it is already in rebase state then add index and try to commit and call next
-
     let mut rebase;
-    println!("{:?}", repo.state());
     match repo.state() {
         git2::RepositoryState::RebaseMerge => {
             git_add_all(&repo)?;
@@ -338,4 +332,63 @@ pub fn git_rebase(
     let random_sig = git2::Signature::now("rebaseauthor", "rebasemail")?;
     rebase.finish(&random_sig)?;;
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempdir::TempDir;
+
+    #[test]
+    fn test_commit() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path();
+
+        let repo = Repository::init(&path).unwrap();
+        let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+        f.write_all(b"some text").unwrap();
+        let req = Json(CommitRequest {location: path, message: "test commit".to_string()});
+        git_commit(req).unwrap();
+
+        let head_oid = repo.head().unwrap().target().unwrap();
+        let commit = repo.find_commit(head_oid).unwrap();
+        assert_eq!(commit.message().unwrap(), "test commit");
+
+        let req2 = Json(CommitRequest {location: path, message: "".to_string()});
+        assert!(git_commit(req2).is_err());
+
+    }
+
+    #[test]
+    fn test_log() {
+        //difficut to get the inner value due to return type being impl trait responder
+
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path();
+
+        let _repo = Repository::init(&path).unwrap();
+        let mut f = fs::File::create(&path.join("text.txt")).unwrap();
+        f.write_all(b"some text").unwrap();
+        let req = Json(CommitRequest {location: path, message: "1st commit".to_string()});
+        git_commit(req).unwrap();
+
+        let req = Json(BookLocation {location: path});
+        assert!(git_log(req).is_ok());
+    }
+
+    #[test]
+    fn test_swich_branch() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path();
+
+        let _repo = Repository::init(&path).unwrap();
+
+        let req = Json(CommitRequest {location: path, message: "test commit".to_string()});
+        git_commit(req).unwrap();
+
+        assert!(git_switch_branch(Json(GitSwitchBranch { location: path, name: "master".to_string()})).is_ok());
+        assert!(git_switch_branch(Json(GitSwitchBranch { location: path, name: "doen't exit".to_string()})).is_err());
+
+    }
 }

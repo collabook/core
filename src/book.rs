@@ -4,6 +4,7 @@ use sha1::Sha1;
 use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
+use std::path::Path;
 use std::path::PathBuf;
 use crate::vcs::*;
 use walkdir::WalkDir;
@@ -27,8 +28,8 @@ enum Genre {
 
 #[allow(unused)]
 #[derive(Serialize, Deserialize, Debug)]
-pub struct NewBookRequest {
-    location: PathBuf,
+pub struct NewBookRequest<T: AsRef<Path>> {
+    location: T,
     name: String,
     genre: Genre,
 }
@@ -48,7 +49,7 @@ struct File {
 }
 
 impl File {
-    fn new(name: &str, rel_path: &str, parent: String, is_folder: bool, is_research: bool) -> Self {
+    fn new(name: &str, rel_path: &str, parent: &str, is_folder: bool, is_research: bool) -> Self {
         let id = sha1::Sha1::from(rel_path).digest().to_string();
         let content: Option<String>;
 
@@ -81,24 +82,30 @@ fn is_hidden(entry: &walkdir::DirEntry) -> bool {
 }
 
 impl Book {
-    fn new(new_book_req: &NewBookRequest) -> Result<Self, MyError> {
+    fn new<P: AsRef<Path>>(new_book_req: &NewBookRequest<P>) -> Result<Self, MyError> {
         let mut files = HashMap::new();
-        let root = File::new(&new_book_req.name, "", format!("0"), true, false);
-        let book = File::new("Book", "Book", root.id.clone(), true, false);
-        let chap1 = File::new("chap1", "Book/chap1", book.id.clone(), true, false);
-        let sec1 = File::new("sec1", "Book/chap1/sec1", chap1.id.clone(), false, false);
+        let root = File::new(&new_book_req.name, "", "0", true, false);
+        let book = File::new("Book", "Book", &root.id, true, false);
+        let chap1 = File::new("Chap1", "Book/Chap1", &book.id, true, false);
+        let sec1 = File::new("Sec1", "Book/Chap1/Sec1", &chap1.id, false, false);
+        let research = File::new("Research", "Research", &root.id, true, true);
+        let chars = File::new("Chars", "Research/Chars", &research.id, false, true);
+        let world = File::new("World", "Research/World", &research.id, false, true);
         files.insert(root.id.clone(), root);
         files.insert(book.id.clone(), book);
         files.insert(chap1.id.clone(), chap1);
         files.insert(sec1.id.clone(), sec1);
+        files.insert(research.id.clone(), research);
+        files.insert(chars.id.clone(), chars);
+        files.insert(world.id.clone(), world);
 
-        let repo = git_init(&new_book_req.location)?;
+        let repo = git_init(&new_book_req.location.as_ref().to_path_buf())?;
         let remotes = git_get_remotes(&repo)?;
         let branches = git_get_branches(&repo)?;
 
         Ok(Book {
             files,
-            location: new_book_req.location.clone(),
+            location: new_book_req.location.as_ref().to_path_buf(),
             name: new_book_req.name.to_string(),
             remotes,
             branches,
@@ -124,7 +131,7 @@ impl Book {
         Ok(())
     }
 
-    fn open(location: &PathBuf) -> Result<Self, MyError> {
+    fn open(location: &Path) -> Result<Self, MyError> {
         let mut files: HashMap<String, File> = HashMap::new();
 
         //check if is a collabook directory
@@ -176,6 +183,7 @@ impl Book {
 
             //read synopsis
             let id = Sha1::from(rel_path_str).digest().to_string();
+            //TODO: create synopsis file if not present
             let mut syn_file = fs::File::open(&location.join(".collabook/synopsis").join(&id))?;
             let mut synopsis = String::new();
             syn_file.read_to_string(&mut synopsis)?;
@@ -199,7 +207,7 @@ impl Book {
         let branches = git_get_branches(&repo)?;
         Ok(Book {
             files,
-            location: location.clone(),
+            location: location.to_path_buf(),
             name: book_name.to_string(),
             remotes,
             branches
@@ -207,19 +215,20 @@ impl Book {
     }
 }
 
-pub fn new_book(info: Json<NewBookRequest>) -> Result<impl Responder, MyError> {
-    let book = Book::new(&info)?;
+pub fn new_book<P: AsRef<Path>>(info: Json<NewBookRequest<P>>) -> Result<impl Responder, MyError> {
+    //New book constructor shouldn't look for git remotes and branches itself, it should be a parameter of of constructor
+    let book = Book::new(&info.into_inner())?;
     book.mkdirs()?;
     let ser_book = serde_json::to_string(&book)?;
     Ok(HttpResponse::Ok().body(ser_book))
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct BookLocation {
-    pub location: PathBuf,
+pub struct BookLocation<T: AsRef<Path>> {
+    pub location: T,
 }
 
-pub fn open_book(info: Json<BookLocation>) -> Result<impl Responder, MyError> {
+pub fn open_book(info: Json<BookLocation<PathBuf>>) -> Result<impl Responder, MyError> {
     let book = Book::open(&info.location)?;
     let ser_book = serde_json::to_string(&book)?;
     Ok(ser_book)
@@ -330,44 +339,131 @@ pub struct Author {
     pub auth: AuthType,
 }
 
+impl Author {
+    pub fn read_from_disk() -> Result<Self, MyError> {
+        let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
+        let path = xdg_dirs
+            .find_config_file("Config.toml")
+            .ok_or("Config not found")?;
+        let mut file = fs::File::open(path)?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+        Ok(toml::from_str(&contents)?)
+    }
+
+    pub fn write_to_disk(&self) -> Result<(), MyError> {
+        let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
+        let path = xdg_dirs.place_config_file("Config.toml")?;
+        let contents = toml::to_string(self)?;
+        let mut file = fs::File::create(path)?;
+        file.write_all(contents.as_bytes())?;
+        Ok(())
+    }
+}
+
 pub fn get_author(_req: &HttpRequest) -> Result<impl Responder, MyError> {
-    let author = get_user_config()?;
+    let author = Author::read_from_disk()?;
     Ok(HttpResponse::Ok().json(author))
 }
 
 pub fn create_author(info: Json<Author>) -> Result<impl Responder, MyError> {
-    let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
-    let path = xdg_dirs.place_config_file("Config.toml")?;
     let author = info.into_inner();
-    let contents = toml::to_string(&author)?;
-    let mut file = fs::File::create(path)?;
-    file.write_all(contents.as_bytes())?;
+    author.write_to_disk()?;
     Ok(HttpResponse::Ok().finish())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{http, test::TestServer, App};
     use tempdir::TempDir;
+    use std::path::Path;
 
-    fn create_app() -> App {
-        App::new().resource("/newbook", |r| r.with(new_book))
+    #[test]
+    fn test_file_constructor() {
+        let root = File::new("testbook", "", "0", true, false);
+        assert_eq!(&root.id, "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+        assert_eq!(root.content.is_none(), true);
+        assert_eq!(&root.parent, "0");
+        assert_eq!(&root.rel_path, Path::new(""));
+
+        let sec1 = File::new("sec1", "Book/Chap1/Sec1", &root.id, false, false);
+        assert_eq!(&sec1.id, "0ad0fd5d1787ebf9465fb46c743d35eb6b9ab783");
+        assert_eq!(&sec1.content.unwrap(), "");
     }
 
     #[test]
-    fn it_works() {
-        let temp_dir = TempDir::new("test_data").unwrap();
-        let mut srv = TestServer::with_factory(create_app);
-        let request = srv
-            .client(http::Method::POST, "/newbook")
-            .json(NewBookRequest {
-                name: "MyTestBook".to_string(),
-                location: PathBuf::from(temp_dir.path()),
-                genre: Genre::Fantasy,
-            })
-            .unwrap();
-        let resp = srv.execute(request.send()).unwrap();
-        assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    fn new_book_creates_correct_files() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path().join("test_book");
+        let req = Json(NewBookRequest {
+            name: "test_book".to_string(),
+            location: &path,
+            genre: Genre::Fantasy,
+        });
+        new_book(req).unwrap();
+        assert_eq!(path.join("Book/Chap1/Sec1").exists(), true);
+        assert_eq!(path.join("Research/Chars").exists(), true);
+    }
+
+    #[test]
+    fn open_book_reads_content_correctly() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path().join("test_book");
+
+        let root_sha1 = "da39a3ee5e6b4b0d3255bfef95601890afd80709";
+        let book_sha1 = "f69f233005f15802770fd26fbf7ead52ec13d9e6";
+        let research_sha1 = "be601df25eea91eaaf0d5e80263930143af345be";
+        let sec1_sha1 = "169a91e9a0699ef3d8cee8f29a76856498ef0c0e";
+        let chars_sha1 = "f7de51de1cd3ad2e789300bd2f11f84f9f35ced0";
+
+        fs::create_dir_all(&path.join("Book")).unwrap();
+        fs::create_dir_all(&path.join("Research")).unwrap();
+        fs::create_dir_all(&path.join(".collabook/synopsis")).unwrap();
+        let mut sec1 = fs::File::create(&path.join("Book/Sec1")).unwrap();
+
+        fs::File::create(&path.join("Research/Chars")).unwrap();
+        fs::File::create(&path.join(".collabook/synopsis").join(root_sha1)).unwrap();
+        fs::File::create(&path.join(".collabook/synopsis").join(book_sha1)).unwrap();
+        fs::File::create(&path.join(".collabook/synopsis").join(research_sha1)).unwrap();
+        fs::File::create(&path.join(".collabook/synopsis").join(sec1_sha1)).unwrap();
+        let mut chars = fs::File::create(&path.join(".collabook/synopsis").join(chars_sha1)).unwrap();
+
+
+        let content = String::from("Synopsis for the character research file");
+        let synopsis = String::from("Content inside the sec1 file");
+
+        sec1.write_all(content.as_bytes()).unwrap();
+        chars.write_all(synopsis.as_bytes()).unwrap();
+
+        git2::Repository::init(&path).unwrap();
+
+        let book = Book::open(&path).unwrap();
+
+        assert_eq!(book.files.get("f7de51de1cd3ad2e789300bd2f11f84f9f35ced0").unwrap().synopsis, synopsis);
+        assert_eq!(book.files.get("169a91e9a0699ef3d8cee8f29a76856498ef0c0e").unwrap().content, Some(content));
+    }
+
+    #[test]
+    #[should_panic(expected = "Not a Collabook directory")]
+    fn opening_not_a_book_gives_error() {
+        let req = Json(BookLocation{location:PathBuf::from("doesn't_exist")});
+        let book = open_book(req);
+        book.unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    #[should_panic(expected = "Invalid input")]
+    fn create_author_with_empty_string() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path().to_str().unwrap().to_owned();
+        std::env::set_var("XDG_CONFIG_HOME", path);
+
+        let author = Author {
+            name: "".to_string(),
+            email: "".to_string(),
+            auth: AuthType::SSHAgent
+        };
+        author.write_to_disk().unwrap();
     }
 }

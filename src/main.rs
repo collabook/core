@@ -8,8 +8,11 @@ mod vcs;
 
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App};
+//use std::path::Path;
 use crate::book::*;
 use crate::vcs::*;
+
+//TODO: impl my own json type for better error msg on Deserialize error
 
 // websockets might be a better idea
 fn main() {
@@ -25,7 +28,7 @@ fn main() {
                     r.method(http::Method::GET).f(book::get_author);
                     r.method(http::Method::POST).with(create_author);
                 })
-                .resource("/newbook", |r| r.method(http::Method::POST).with(new_book))
+                .resource("/newbook", |r| r.method(http::Method::POST).with(new_book::<std::path::PathBuf>))
                 .resource("/openbook", |r| {
                     r.method(http::Method::POST).with(open_book)
                 })
@@ -41,9 +44,9 @@ fn main() {
                 })
                 //.resource("/gitadd", |r| r.method(http::Method::POST).with(git_add_all))
                 .resource("/gitcommit", |r| {
-                    r.method(http::Method::POST).with(git_commit)
+                    r.method(http::Method::POST).with(git_commit::<std::path::PathBuf>)
                 })
-                .resource("/gitlog", |r| r.method(http::Method::POST).with(git_log))
+                .resource("/gitlog", |r| r.method(http::Method::POST).with(git_log::<std::path::PathBuf>))
                 .resource("/gitcheckout", |r| {
                     r.method(http::Method::POST).with(git_checkout)
                 })
@@ -53,7 +56,7 @@ fn main() {
                 })
                 .resource("/gitpush", |r| r.method(http::Method::POST).with(git_push))
                 .resource("/gitpull", |r| r.method(http::Method::POST).with(git_pull))
-                .resource("/gitswitchbranch", |r| r.method(http::Method::POST).with(git_switch_branch))
+                .resource("/gitswitchbranch", |r| r.method(http::Method::POST).with(git_switch_branch::<std::path::PathBuf>))
                 .resource("/gitcreatebranch", |r| r.method(http::Method::POST).with(git_create_branch))
                 .resource("/gitrebasecontinue", |r| r.method(http::Method::POST).with(git_rebase_continue))
                 .register()
