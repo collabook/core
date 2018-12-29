@@ -43,22 +43,22 @@ fn main() {
                     r.method(http::Method::POST).with(save_synopsis)
                 })
                 //.resource("/gitadd", |r| r.method(http::Method::POST).with(git_add_all))
-                .resource("/gitcommit", |r| {
-                    r.method(http::Method::POST).with(git_commit::<std::path::PathBuf>)
-                })
-                .resource("/gitlog", |r| r.method(http::Method::POST).with(git_log::<std::path::PathBuf>))
-                .resource("/gitcheckout", |r| {
-                    r.method(http::Method::POST).with(git_checkout)
-                })
-                //.resource("/gitgetremotes", |r| r.method(http::Method::POST).with(git_get_remotes))
-                .resource("/gitremoteadd", |r| {
-                    r.method(http::Method::POST).with(git_remote_add)
-                })
-                .resource("/gitpush", |r| r.method(http::Method::POST).with(git_push))
-                .resource("/gitpull", |r| r.method(http::Method::POST).with(git_pull))
-                .resource("/gitswitchbranch", |r| r.method(http::Method::POST).with(git_switch_branch::<std::path::PathBuf>))
-                .resource("/gitcreatebranch", |r| r.method(http::Method::POST).with(git_create_branch))
-                .resource("/gitrebasecontinue", |r| r.method(http::Method::POST).with(git_rebase_continue))
+                //.resource("/gitcommit", |r| {
+                //    r.method(http::Method::POST).with(git_commit::<std::path::PathBuf>)
+                //})
+                //.resource("/gitlog", |r| r.method(http::Method::POST).with(git_log::<std::path::PathBuf>))
+                //.resource("/gitcheckout", |r| {
+                //    r.method(http::Method::POST).with(git_checkout)
+                //})
+                ////.resource("/gitgetremotes", |r| r.method(http::Method::POST).with(git_get_remotes))
+                //.resource("/gitremoteadd", |r| {
+                //    r.method(http::Method::POST).with(git_remote_add)
+                //})
+                //.resource("/gitpush", |r| r.method(http::Method::POST).with(git_push))
+                //.resource("/gitpull", |r| r.method(http::Method::POST).with(git_pull))
+                //.resource("/gitswitchbranch", |r| r.method(http::Method::POST).with(git_switch_branch::<std::path::PathBuf>))
+                //.resource("/gitcreatebranch", |r| r.method(http::Method::POST).with(git_create_branch))
+                //.resource("/gitrebasecontinue", |r| r.method(http::Method::POST).with(git_rebase_continue))
                 .register()
         })
     })

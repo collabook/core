@@ -71,6 +71,62 @@ impl File {
             synopsis: "".to_owned(),
         }
     }
+
+    fn from_location<P: AsRef<Path>>(path: P, book: P) -> Result<Self, MyError> {
+
+        let name = &path.as_ref()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("Filename contains invalid utf-8")?;
+
+
+        let rel_path = path.as_ref().strip_prefix(&book)?;
+
+        let parent_id = match rel_path.parent() {
+            Some(parent) => parent
+                .to_str()
+                .ok_or("Filename contains invalid utf-8")
+                .map(|par| Sha1::from(par).digest().to_string()),
+            None => Ok("0".to_string()),
+        }?;
+
+        let rel_path_str = rel_path.to_str().ok_or("Filename contains invalid utf-8")?;
+        let is_folder = path.as_ref().is_dir();
+        let is_research = rel_path.to_string_lossy().contains("Research");
+
+        //read contents
+        let mut content: Option<String>;
+        if !path.as_ref().is_dir() {
+            let mut data = String::new();
+            let mut file = fs::File::open(&path)?;
+            file.read_to_string(&mut data)?;
+            content = Some(data)
+        } else {
+            content = None
+        }
+
+        //read synopsis
+        let id = Sha1::from(rel_path_str).digest().to_string();
+        println!("{}", id);
+        //TODO: create synopsis file if not present
+        let mut syn_file = fs::File::open(&book.as_ref().join(".collabook/synopsis").join(&id))?;
+        println!("{} id 2", id);
+        let mut synopsis = String::new();
+        syn_file.read_to_string(&mut synopsis)?;
+
+        let f = File {
+            id,
+            name: name.to_string(),
+            rel_path: PathBuf::from(rel_path.clone()),
+            parent: parent_id,
+            is_visible: true,
+            is_folder,
+            is_research,
+            content,
+            synopsis,
+        };
+        Ok(f)
+    }
 }
 
 fn is_hidden(entry: &walkdir::DirEntry) -> bool {
@@ -151,54 +207,7 @@ impl Book {
             .filter_entry(|e| !is_hidden(e))
             .filter_map(|e| e.ok())
         {
-            let name = entry
-                .file_name()
-                .to_str()
-                .ok_or("Filename contains invalid utf-8")?;
-
-            let rel_path = entry.path().strip_prefix(&location)?;
-
-            let parent_id = match rel_path.parent() {
-                Some(parent) => parent
-                    .to_str()
-                    .ok_or("Filename contains invalid utf-8")
-                    .map(|par| Sha1::from(par).digest().to_string()),
-                None => Ok("0".to_string()),
-            }?;
-
-            let rel_path_str = rel_path.to_str().ok_or("Filename contains invalid utf-8")?;
-            let is_folder = entry.file_type().is_dir();
-            let is_research = rel_path.to_string_lossy().contains("Research");
-
-            //read contents
-            let mut content: Option<String>;
-            if entry.file_type().is_file() {
-                let mut data = String::new();
-                let mut file = fs::File::open(entry.path())?;
-                file.read_to_string(&mut data)?;
-                content = Some(data)
-            } else {
-                content = None
-            }
-
-            //read synopsis
-            let id = Sha1::from(rel_path_str).digest().to_string();
-            //TODO: create synopsis file if not present
-            let mut syn_file = fs::File::open(&location.join(".collabook/synopsis").join(&id))?;
-            let mut synopsis = String::new();
-            syn_file.read_to_string(&mut synopsis)?;
-
-            let f = File {
-                id,
-                name: name.to_owned(),
-                rel_path: PathBuf::from(rel_path.clone()),
-                parent: parent_id,
-                is_visible: true,
-                is_folder,
-                is_research,
-                content,
-                synopsis,
-            };
+            let f = File::from_location(entry.path(), &location)?;
             files.insert(f.id.clone(), f);
         }
 
@@ -377,6 +386,35 @@ mod tests {
     use super::*;
     use tempdir::TempDir;
     use std::path::Path;
+
+    #[test]
+    fn file_from_location() {
+        let temp_dir = TempDir::new("test_book").unwrap();
+        let path = temp_dir.path();
+
+        //create a sec1 file and its synopsis file
+        fs::File::create(path.join("Sec1")).unwrap();
+        fs::create_dir_all(path.join(".collabook/synopsis")).unwrap();
+        fs::File::create(path.join(".collabook/synopsis").join("fbd662164e6d85d890952881f948ef17acaecc2d")).unwrap();
+
+        let sec1 = File::from_location::<&Path>(&temp_dir.path().join("Sec1"), temp_dir.path()).unwrap();
+        assert_eq!(sec1.is_folder, false);
+        assert_eq!(sec1.content, Some("".to_string()));
+        assert_eq!(sec1.name, "Sec1".to_string());
+        assert_eq!(sec1.synopsis, "".to_string());
+
+        //create a research file
+        fs::create_dir_all(path.join("Research")).unwrap();
+        let mut f = fs::File::create(path.join("Research/Chars")).unwrap();
+        fs::File::create(path.join(".collabook/synopsis").join("f7de51de1cd3ad2e789300bd2f11f84f9f35ced0")).unwrap();
+        //add some content to Research/Chars file
+        f.write_all(b"some content").unwrap();
+
+        let chars = File::from_location::<&Path>(&path.join("Research/Chars"), path).unwrap();
+        assert_eq!(chars.is_folder, false);
+        assert_eq!(chars.is_research, true);
+        assert_eq!(chars.content, Some("some content".to_string()));
+    }
 
     #[test]
     fn test_file_constructor() {
