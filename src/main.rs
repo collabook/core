@@ -28,7 +28,10 @@ fn main() {
                     r.method(http::Method::GET).f(book::get_author);
                     r.method(http::Method::POST).with(create_author);
                 })
-                .resource("/newbook", |r| r.method(http::Method::POST).with(new_book::<std::path::PathBuf>))
+                .resource("/newbook", |r| {
+                    r.method(http::Method::POST)
+                        .with(new_book::<std::path::PathBuf>)
+                })
                 .resource("/openbook", |r| {
                     r.method(http::Method::POST).with(open_book)
                 })
@@ -46,23 +49,37 @@ fn main() {
                 .resource("/gitcommit", |r| {
                     r.method(http::Method::POST).with(commit_request)
                 })
-                .resource("/gitlog", |r| r.method(http::Method::POST).with(log_request))
+                .resource("/gitlog", |r| {
+                    r.method(http::Method::POST).with(log_request)
+                })
                 .resource("/gitcheckout", |r| {
                     r.method(http::Method::POST).with(checkout_request)
                 })
-                .resource("/gitgetremotes", |r| r.method(http::Method::POST).with(get_remote_request))
+                .resource("/gitgetremotes", |r| {
+                    r.method(http::Method::POST).with(get_remote_request)
+                })
                 .resource("/gitremoteadd", |r| {
                     r.method(http::Method::POST).with(remote_add_request)
                 })
-                .resource("/gitpush", |r| r.method(http::Method::POST).with(push_request))
-                .resource("/gitpull", |r| r.method(http::Method::POST).with(pull_request))
-                .resource("/gitswitchbranch", |r| r.method(http::Method::POST).with(switch_branch_request))
-                .resource("/gitcreatebranch", |r|
-                r.method(http::Method::POST).with(create_branch_request))
-                .resource("/gitrebasecontinue", |r|
-                r.method(http::Method::POST).with(rebase_request))
-                .resource("/gitrebasecontinue", |r| r.method(http::Method::POST).with(rebase_continue_request))
-               .register()
+                .resource("/gitpush", |r| {
+                    r.method(http::Method::POST).with(push_request)
+                })
+                .resource("/gitpull", |r| {
+                    r.method(http::Method::POST).with(pull_request)
+                })
+                .resource("/gitswitchbranch", |r| {
+                    r.method(http::Method::POST).with(switch_branch_request)
+                })
+                .resource("/gitcreatebranch", |r| {
+                    r.method(http::Method::POST).with(create_branch_request)
+                })
+                .resource("/gitrebase", |r| {
+                    r.method(http::Method::POST).with(rebase_request)
+                })
+                .resource("/gitrebasecontinue", |r| {
+                    r.method(http::Method::POST).with(rebase_continue_request)
+                })
+                .register()
         })
     })
     .bind("localhost:8088")

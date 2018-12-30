@@ -1,12 +1,12 @@
-use actix_web::{HttpRequest, HttpResponse, Json, Responder};
 use crate::error::MyError;
+use crate::vcs::*;
+use actix_web::{HttpRequest, HttpResponse, Json, Responder};
 use sha1::Sha1;
 use std::collections::HashMap;
 use std::fs;
 use std::io::prelude::*;
 use std::path::Path;
 use std::path::PathBuf;
-use crate::vcs::*;
 use walkdir::WalkDir;
 use xdg::BaseDirectories;
 
@@ -73,12 +73,11 @@ impl File {
     }
 
     fn from_location<P: AsRef<Path>>(path: P, book: P) -> Result<Self, MyError> {
-
-        let name = &path.as_ref()
+        let name = &path
+            .as_ref()
             .file_name()
             .and_then(|name| name.to_str())
             .ok_or("Filename contains invalid utf-8")?;
-
 
         let rel_path = path.as_ref().strip_prefix(&book)?;
 
@@ -107,10 +106,8 @@ impl File {
 
         //read synopsis
         let id = Sha1::from(rel_path_str).digest().to_string();
-        println!("{}", id);
         //TODO: create synopsis file if not present
         let mut syn_file = fs::File::open(&book.as_ref().join(".collabook/synopsis").join(&id))?;
-        println!("{} id 2", id);
         let mut synopsis = String::new();
         syn_file.read_to_string(&mut synopsis)?;
 
@@ -155,10 +152,7 @@ impl Book {
         files.insert(chars.id.clone(), chars);
         files.insert(world.id.clone(), world);
 
-        //let repo = git_init(&new_book_req.location.as_ref().to_path_buf())?;
-        //let remotes = git_get_remotes(&repo)?;
-        //let branches = git_get_branches(&repo)?;
-
+        //should this be done here or using other request?
         let repo = BookRepo::new(&new_book_req.location)?;
         let remotes = repo._get_remotes()?;
         let branches = repo._get_branches()?;
@@ -215,11 +209,7 @@ impl Book {
             files.insert(f.id.clone(), f);
         }
 
-        //let repo = git2::Repository::open(&location)?;
-        //let remotes = git_get_remotes(&repo)?;
-        //let branches = git_get_branches(&repo)?;
-
-        //TODO: this should be provided as a parameter
+        //TODO: this should be provided as a parameter.. again not sure.
         let repo = BookRepo::from_location(&location)?;
         let remotes = repo._get_remotes()?;
         let branches = repo._get_branches()?;
@@ -229,13 +219,13 @@ impl Book {
             location: location.to_path_buf(),
             name: book_name.to_string(),
             remotes,
-            branches
+            branches,
         })
     }
 }
 
 pub fn new_book<P: AsRef<Path>>(info: Json<NewBookRequest<P>>) -> Result<impl Responder, MyError> {
-    //New book constructor shouldn't look for git remotes and branches itself, it should be a parameter of of constructor
+    //TODO: New book constructor shouldn't look for git remotes and branches itself, it should be a parameter of of constructor
     let book = Book::new(&info.into_inner())?;
     book.mkdirs()?;
     let ser_book = serde_json::to_string(&book)?;
@@ -394,8 +384,8 @@ pub fn create_author(info: Json<Author>) -> Result<impl Responder, MyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempdir::TempDir;
     use std::path::Path;
+    use tempdir::TempDir;
 
     #[test]
     fn file_from_location() {
@@ -405,9 +395,14 @@ mod tests {
         //create a sec1 file and its synopsis file
         fs::File::create(path.join("Sec1")).unwrap();
         fs::create_dir_all(path.join(".collabook/synopsis")).unwrap();
-        fs::File::create(path.join(".collabook/synopsis").join("fbd662164e6d85d890952881f948ef17acaecc2d")).unwrap();
+        fs::File::create(
+            path.join(".collabook/synopsis")
+                .join("fbd662164e6d85d890952881f948ef17acaecc2d"),
+        )
+        .unwrap();
 
-        let sec1 = File::from_location::<&Path>(&temp_dir.path().join("Sec1"), temp_dir.path()).unwrap();
+        let sec1 =
+            File::from_location::<&Path>(&temp_dir.path().join("Sec1"), temp_dir.path()).unwrap();
         assert_eq!(sec1.is_folder, false);
         assert_eq!(sec1.content, Some("".to_string()));
         assert_eq!(sec1.name, "Sec1".to_string());
@@ -416,7 +411,11 @@ mod tests {
         //create a research file
         fs::create_dir_all(path.join("Research")).unwrap();
         let mut f = fs::File::create(path.join("Research/Chars")).unwrap();
-        fs::File::create(path.join(".collabook/synopsis").join("f7de51de1cd3ad2e789300bd2f11f84f9f35ced0")).unwrap();
+        fs::File::create(
+            path.join(".collabook/synopsis")
+                .join("f7de51de1cd3ad2e789300bd2f11f84f9f35ced0"),
+        )
+        .unwrap();
         //add some content to Research/Chars file
         f.write_all(b"some content").unwrap();
 
@@ -474,8 +473,8 @@ mod tests {
         fs::File::create(&path.join(".collabook/synopsis").join(book_sha1)).unwrap();
         fs::File::create(&path.join(".collabook/synopsis").join(research_sha1)).unwrap();
         fs::File::create(&path.join(".collabook/synopsis").join(sec1_sha1)).unwrap();
-        let mut chars = fs::File::create(&path.join(".collabook/synopsis").join(chars_sha1)).unwrap();
-
+        let mut chars =
+            fs::File::create(&path.join(".collabook/synopsis").join(chars_sha1)).unwrap();
 
         let content = String::from("Synopsis for the character research file");
         let synopsis = String::from("Content inside the sec1 file");
@@ -487,14 +486,28 @@ mod tests {
 
         let book = Book::open(&path).unwrap();
 
-        assert_eq!(book.files.get("f7de51de1cd3ad2e789300bd2f11f84f9f35ced0").unwrap().synopsis, synopsis);
-        assert_eq!(book.files.get("169a91e9a0699ef3d8cee8f29a76856498ef0c0e").unwrap().content, Some(content));
+        assert_eq!(
+            book.files
+                .get("f7de51de1cd3ad2e789300bd2f11f84f9f35ced0")
+                .unwrap()
+                .synopsis,
+            synopsis
+        );
+        assert_eq!(
+            book.files
+                .get("169a91e9a0699ef3d8cee8f29a76856498ef0c0e")
+                .unwrap()
+                .content,
+            Some(content)
+        );
     }
 
     #[test]
     #[should_panic(expected = "Not a Collabook directory")]
     fn opening_not_a_book_gives_error() {
-        let req = Json(BookLocation{location:PathBuf::from("doesn't_exist")});
+        let req = Json(BookLocation {
+            location: PathBuf::from("doesn't_exist"),
+        });
         let book = open_book(req);
         book.unwrap();
     }
@@ -510,7 +523,7 @@ mod tests {
         let author = Author {
             name: "".to_string(),
             email: "".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
         author.write_to_disk().unwrap();
     }

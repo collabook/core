@@ -1,20 +1,23 @@
-use git2::{Repository, Oid, Index, IndexAddOption, BranchType, Branch, Remote, build::CheckoutBuilder, PushOptions, RemoteCallbacks};
-use std::ops::Deref;
 use actix_web::{HttpResponse, Json, Responder, Result};
 use chrono::prelude::*;
+use git2::{
+    build::CheckoutBuilder, Branch, BranchType, Index, IndexAddOption, Oid, PushOptions, Remote,
+    RemoteCallbacks, Repository,
+};
 use std::fs;
 use std::io::prelude::*;
+use std::ops::Deref;
 use std::path;
+use std::path::Path;
 use std::path::PathBuf;
 use xdg::BaseDirectories;
-use std::path::Path;
 
 use crate::book::*;
 use crate::error::MyError;
 use crate::git2_error;
 
 pub struct BookRepo {
-    repo: Repository
+    repo: Repository,
 }
 
 impl Deref for BookRepo {
@@ -33,14 +36,17 @@ struct GitLog {
     time: String,
 }
 
-
 impl BookRepo {
     pub fn new<P: AsRef<Path>>(location: P) -> Result<Self, MyError> {
-        Ok(BookRepo {repo: Repository::init(location)?})
+        Ok(BookRepo {
+            repo: Repository::init(location)?,
+        })
     }
 
     pub fn from_location<P: AsRef<Path>>(location: P) -> Result<Self, MyError> {
-        Ok(BookRepo {repo: Repository::open(location)?})
+        Ok(BookRepo {
+            repo: Repository::open(location)?,
+        })
     }
 
     // underscore is used so as not to be confused with with commit fn of git2::Repository::comit
@@ -66,9 +72,7 @@ impl BookRepo {
                 let parent = self.find_commit(target)?;
                 Ok(self.commit(Some("HEAD"), &sig, &sig, msg.as_ref(), &tree, &[&parent])?)
             }
-            Err(_) => {
-                Ok(self.commit(Some("HEAD"), &sig, &sig, msg.as_ref(), &tree, &[])?)
-            }
+            Err(_) => Ok(self.commit(Some("HEAD"), &sig, &sig, msg.as_ref(), &tree, &[])?),
         }
     }
 
@@ -114,7 +118,7 @@ impl BookRepo {
         for branch in branches {
             let (branch, _) = branch?;
             if branch.is_head() {
-                return Ok(branch)
+                return Ok(branch);
             }
         }
         Err(MyError("Could not find current branch".to_string()))
@@ -135,32 +139,31 @@ impl BookRepo {
     }
 
     fn _log(&self) -> Result<Vec<GitLog>, MyError> {
+        let mut walk = self.revwalk()?;
 
-      let mut walk = self.revwalk()?;
-  
-      walk.push_head()?;
-  
-      let oids: Vec<git2::Oid> = walk.by_ref().collect::<Result<Vec<_>, _>>()?;
-  
-      let mut commits: Vec<GitLog> = Vec::new();
-      for oid in oids {
-          let commit = self.find_commit(oid)?;
-  
-          //TODO: figure out the timestamp thingy
-          let naive_datetime = NaiveDateTime::from_timestamp(
-              commit.time().seconds() + commit.time().offset_minutes() as i64 * 60,
-              0,
-          );
-          let datetime: DateTime<Utc> = DateTime::from_utc(naive_datetime, Utc);
-          let custom_commit = GitLog {
-              oid: oid.to_string(),
-              message: commit.message().unwrap_or("").to_string(),
-              author: commit.author().name().unwrap_or("").to_string(),
-              time: datetime.to_rfc2822(),
-          };
-          commits.push(custom_commit);
-      }
-      Ok(commits)
+        walk.push_head()?;
+
+        let oids: Vec<git2::Oid> = walk.by_ref().collect::<Result<Vec<_>, _>>()?;
+
+        let mut commits: Vec<GitLog> = Vec::new();
+        for oid in oids {
+            let commit = self.find_commit(oid)?;
+
+            //TODO: figure out the timestamp thingy
+            let naive_datetime = NaiveDateTime::from_timestamp(
+                commit.time().seconds() + commit.time().offset_minutes() as i64 * 60,
+                0,
+            );
+            let datetime: DateTime<Utc> = DateTime::from_utc(naive_datetime, Utc);
+            let custom_commit = GitLog {
+                oid: oid.to_string(),
+                message: commit.message().unwrap_or("").to_string(),
+                author: commit.author().name().unwrap_or("").to_string(),
+                time: datetime.to_rfc2822(),
+            };
+            commits.push(custom_commit);
+        }
+        Ok(commits)
     }
 
     fn _checkout_commit(&self, oid: Oid) -> Result<(), MyError> {
@@ -173,14 +176,17 @@ impl BookRepo {
         Ok(())
     }
 
-
     // `$ git rebase dev` here branch is the current branch and dev is the upstream branch.
     fn _rebase(&self, branch: &Branch, upstream: &Branch) -> Result<(), MyError> {
-
         let branch_annotated_commit = self.reference_to_annotated_commit(branch.get())?;
         let upstream_annotated_commit = self.reference_to_annotated_commit(upstream.get())?;
-        
-        let mut rebase = self.rebase(Some(&branch_annotated_commit), Some(&upstream_annotated_commit), None, None)?;
+
+        let mut rebase = self.rebase(
+            Some(&branch_annotated_commit),
+            Some(&upstream_annotated_commit),
+            None,
+            None,
+        )?;
 
         while let Some(Ok(op)) = rebase.next() {
             let commit = self.find_commit(op.id())?;
@@ -194,16 +200,18 @@ impl BookRepo {
     }
 
     fn _rebase_continue(&self) -> Result<(), MyError> {
-
         self._add_all()?;
         let mut rebase = self.open_rebase(None)?;
-        let op_current_index = rebase.operation_current().ok_or("Could not find current operation")?;
-        let op = rebase.nth(op_current_index).ok_or("Could not get current patch")?;
+        let op_current_index = rebase
+            .operation_current()
+            .ok_or("Could not find current operation")?;
+        let op = rebase
+            .nth(op_current_index)
+            .ok_or("Could not get current patch")?;
         let commit = self.find_commit(op.id())?;
         let msg = commit.message().unwrap_or("");
         let sig = commit.author();
         rebase.commit(&sig, &sig, msg)?;
-
 
         while let Some(Ok(op)) = rebase.next() {
             let commit = self.find_commit(op.id())?;
@@ -229,14 +237,11 @@ impl BookRepo {
         let upstream_ref = self.find_reference(&upstream_ref_str)?;
         let upstream = Branch::wrap(upstream_ref);
 
-        println!("{:?}", branch.name()?);
-
         self._rebase(&branch, &upstream)?;
         Ok(())
     }
 
     fn _push(&self, branch: &Branch, remote: &mut Remote) -> Result<(), MyError> {
-
         let branch_name = branch.name()?.ok_or("Branch name is invalid")?;
         let mut push_opts = PushOptions::new();
         let mut remote_callbacks = RemoteCallbacks::new();
@@ -281,7 +286,6 @@ fn get_credentials_callback(
     }
 }
 
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CommitRequest<T: AsRef<Path> = PathBuf> {
     message: String,
@@ -289,9 +293,8 @@ pub struct CommitRequest<T: AsRef<Path> = PathBuf> {
 }
 
 pub fn commit_request(info: Json<CommitRequest>) -> Result<impl Responder, MyError> {
-
     let repo = BookRepo::from_location(&info.location)?;
-    let author = Author::read_from_disk()?; 
+    let author = Author::read_from_disk()?;
     repo._commit(&info.message, &author)?;
     Ok(HttpResponse::Ok())
 }
@@ -309,7 +312,6 @@ pub fn log_request(info: Json<BookLocation>) -> Result<impl Responder, MyError> 
     let logs = repo._log()?;
     Ok(HttpResponse::Ok().json(logs))
 }
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CheckoutRequest<P: AsRef<Path> = PathBuf, S: AsRef<str> = String> {
@@ -382,18 +384,25 @@ pub fn push_request(info: Json<PushRequest>) -> Result<impl Responder, MyError> 
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct RebaseRequest <P: AsRef<Path> = PathBuf, S: AsRef<str> = String> {
+pub struct RebaseRequest<P: AsRef<Path> = PathBuf, S: AsRef<str> = String> {
     location: P,
-    name: S
+    name: S,
 }
 
 pub fn rebase_request(info: Json<RebaseRequest>) -> Result<impl Responder, MyError> {
     let repo = BookRepo::from_location(&info.location)?;
     let branch = repo._current_branch()?;
     let branch_name = branch.name()?.ok_or("Could not get current branch name")?;
-    let upsream_ref_str = format!("refs/remotes/{}/{}/", info.name, branch_name);
+
+    //we need to first sync remote before calling rebase
+    repo.find_remote(info.name.as_ref())?
+        .fetch(&[&branch_name], None, None)?;
+
+    let upsream_ref_str = format!("refs/remotes/{}/{}", info.name, branch_name);
     let upstream_ref = repo.find_reference(&upsream_ref_str)?;
     let upstream = Branch::wrap(upstream_ref);
+
+    //TODO: Give better error messages in case of conflicts
     repo._rebase(&branch, &upstream)?;
     Ok(HttpResponse::Ok())
 }
@@ -434,7 +443,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         let oid = repo._commit("test commit", &author).unwrap();
@@ -453,26 +462,27 @@ mod tests {
         //this is an error as repo doesn't have any commits yet
         assert!(repo._create_branch("topic").is_err());
 
-
         let mut f = fs::File::create(&path.join("test.txt")).unwrap();
         f.write_all(b"some text").unwrap();
 
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         let _oid = repo._commit("test commit", &author).unwrap();
 
         let _branch = repo._create_branch("dev").unwrap();
 
-        assert_eq!(repo.find_branch("dev", BranchType::Local).unwrap().name(), Ok(Some("dev")));
+        assert_eq!(
+            repo.find_branch("dev", BranchType::Local).unwrap().name(),
+            Ok(Some("dev"))
+        );
     }
 
     #[test]
     fn test_get_branches() {
-
         let temp_dir = TempDir::new("test_dir").unwrap();
         let path = temp_dir.path();
 
@@ -484,7 +494,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         let oid = repo._commit("test commit", &author).unwrap();
@@ -510,7 +520,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         let oid = repo._commit("test commit", &author).unwrap();
@@ -558,7 +568,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         let mut f = fs::File::create(&path.join("test.txt")).unwrap();
@@ -580,7 +590,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         let mut f = fs::File::create(&path.join("test.txt")).unwrap();
@@ -605,7 +615,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         let mut f = fs::File::create(&path.join("test.txt")).unwrap();
@@ -618,7 +628,7 @@ mod tests {
         repo._switch_branch("topic").unwrap();
 
         assert_eq!(repo._current_branch().unwrap().name(), Ok(Some("topic")));
-   }
+    }
 
     #[test]
     fn test_rebase_no_conflict() {
@@ -629,7 +639,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         // create a commit common on both branches
@@ -638,7 +648,7 @@ mod tests {
         repo._commit("initial commit", &author).unwrap();
 
         repo._create_branch("topic").unwrap();
-        
+
         //add a commit to master branch
         f.write_all(b"our content").unwrap();
         repo._commit("our modifications", &author).unwrap();
@@ -667,7 +677,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         // create a commit common on both branches
@@ -676,7 +686,7 @@ mod tests {
         repo._commit("initial commit", &author).unwrap();
 
         repo._create_branch("topic").unwrap();
-        
+
         //add a commit to master branch
         f.write_all(b"our content").unwrap();
         repo._commit("our modifications", &author).unwrap();
@@ -702,7 +712,7 @@ mod tests {
         let author = Author {
             name: "name".to_string(),
             email: "email".to_string(),
-            auth: AuthType::SSHAgent
+            auth: AuthType::SSHAgent,
         };
 
         // create a commit common on both branches
@@ -711,7 +721,7 @@ mod tests {
         repo._commit("initial commit", &author).unwrap();
 
         repo._create_branch("topic").unwrap();
-        
+
         //add a commit to master branch
         f.write_all(b"\nour content").unwrap();
         repo._commit("our modifications", &author).unwrap();
@@ -728,11 +738,14 @@ mod tests {
         assert!(repo._rebase(&branch, &upstream).is_err());
 
         //resolve the conflicts
-        let mut f1 = fs::OpenOptions::new().truncate(true).write(true).open(path.join("test.txt")).unwrap();
+        let mut f1 = fs::OpenOptions::new()
+            .truncate(true)
+            .write(true)
+            .open(path.join("test.txt"))
+            .unwrap();
         f1.write_all(b"resolved conflict").unwrap();
 
         repo._rebase_continue().unwrap();
-
     }
 
     #[test]
