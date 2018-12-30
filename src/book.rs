@@ -155,9 +155,13 @@ impl Book {
         files.insert(chars.id.clone(), chars);
         files.insert(world.id.clone(), world);
 
-        let repo = git_init(&new_book_req.location.as_ref().to_path_buf())?;
-        let remotes = git_get_remotes(&repo)?;
-        let branches = git_get_branches(&repo)?;
+        //let repo = git_init(&new_book_req.location.as_ref().to_path_buf())?;
+        //let remotes = git_get_remotes(&repo)?;
+        //let branches = git_get_branches(&repo)?;
+
+        let repo = BookRepo::new(&new_book_req.location)?;
+        let remotes = repo._get_remotes()?;
+        let branches = repo._get_branches()?;
 
         Ok(Book {
             files,
@@ -211,9 +215,15 @@ impl Book {
             files.insert(f.id.clone(), f);
         }
 
-        let repo = git2::Repository::open(&location)?;
-        let remotes = git_get_remotes(&repo)?;
-        let branches = git_get_branches(&repo)?;
+        //let repo = git2::Repository::open(&location)?;
+        //let remotes = git_get_remotes(&repo)?;
+        //let branches = git_get_branches(&repo)?;
+
+        //TODO: this should be provided as a parameter
+        let repo = BookRepo::from_location(&location)?;
+        let remotes = repo._get_remotes()?;
+        let branches = repo._get_branches()?;
+
         Ok(Book {
             files,
             location: location.to_path_buf(),
@@ -233,7 +243,7 @@ pub fn new_book<P: AsRef<Path>>(info: Json<NewBookRequest<P>>) -> Result<impl Re
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct BookLocation<T: AsRef<Path>> {
+pub struct BookLocation<T: AsRef<Path> = PathBuf> {
     pub location: T,
 }
 
