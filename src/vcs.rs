@@ -1,4 +1,4 @@
-use git2::{Repository, Oid, Index, IndexAddOption, BranchType, Branch, Remote, build::CheckoutBuilder};
+use git2::{Repository, Oid, Index, IndexAddOption, BranchType, Branch, Remote, build::CheckoutBuilder, PushOptions, RemoteCallbacks};
 use std::ops::Deref;
 use actix_web::{HttpResponse, Json, Responder, Result};
 use chrono::prelude::*;
@@ -88,6 +88,12 @@ impl BookRepo {
         let mut branch_ref = String::from("refs/heads/");
         branch_ref.push_str(name);
         self.set_head(&branch_ref)?;
+
+        let mut checkout_builder = CheckoutBuilder::new();
+        checkout_builder.force().use_ours(true);
+
+        self.checkout_head(Some(&mut checkout_builder))?;
+
         Ok(())
     }
 
@@ -173,40 +179,109 @@ impl BookRepo {
 
         let branch_annotated_commit = self.reference_to_annotated_commit(branch.get())?;
         let upstream_annotated_commit = self.reference_to_annotated_commit(upstream.get())?;
-
+        
         let mut rebase = self.rebase(Some(&branch_annotated_commit), Some(&upstream_annotated_commit), None, None)?;
 
-        //let sig = git2::Signature::now("test", "test")?;
-
-        //rebase.next().ok_or("next failed")??;
-        //rebase.commit(&sig, &sig, "test")?;
-
-        //for operation in rebase { //value moved here
-        //    let commit = repo.find_commit(operation?.id())?;
-        //    let sig = commit.author();
-        //    let msg = commit.message().unwrap_or("");
-        //    rebase.commit(&sig, &sig, msg)?; //value borrowed here after move
-        //}
-
-        while let Some(option_operation) = rebase.next() {
-            match option_operation {
-                Ok(op) => {
-                    let commit = self.find_commit(op.id())?;
-                    let msg = commit.message().unwrap_or("");
-                    let sig = commit.author();
-                    rebase.commit(&sig, &sig, msg)?;
-                },
-                Err(_) => break
-            }
+        while let Some(Ok(op)) = rebase.next() {
+            let commit = self.find_commit(op.id())?;
+            let msg = commit.message().unwrap_or("");
+            let sig = commit.author();
+            rebase.commit(&sig, &sig, msg)?;
         }
-
-
         let random_sig = git2::Signature::now("test", "test")?;
         rebase.finish(&random_sig)?;
         Ok(())
     }
 
+    fn _rebase_continue(&self) -> Result<(), MyError> {
+
+        self._add_all()?;
+        let mut rebase = self.open_rebase(None)?;
+        let op_current_index = rebase.operation_current().ok_or("Could not find current operation")?;
+        let op = rebase.nth(op_current_index).ok_or("Could not get current patch")?;
+        let commit = self.find_commit(op.id())?;
+        let msg = commit.message().unwrap_or("");
+        let sig = commit.author();
+        rebase.commit(&sig, &sig, msg)?;
+
+
+        while let Some(Ok(op)) = rebase.next() {
+            let commit = self.find_commit(op.id())?;
+            let msg = commit.message().unwrap_or("");
+            let sig = commit.author();
+            rebase.commit(&sig, &sig, msg)?;
+        }
+
+        //TODO: not sure why this is needed should probably use author config data here
+        let random_sig = git2::Signature::now("rebaseauthor", "rebasemail")?;
+        rebase.finish(&random_sig)?;;
+        Ok(())
+    }
+
+    fn _pull(&self, from: impl AsRef<str>) -> Result<(), MyError> {
+        let branch = self._current_branch()?;
+        let branch_name = branch.name()?.ok_or("Could not get branch name")?;
+
+        self.find_remote(from.as_ref())?
+            .fetch(&[&branch_name], None, None)?;
+
+        let upstream_ref_str = format!("refs/remotes/{}/{}", from.as_ref(), branch_name);
+        let upstream_ref = self.find_reference(&upstream_ref_str)?;
+        let upstream = Branch::wrap(upstream_ref);
+
+        println!("{:?}", branch.name()?);
+
+        self._rebase(&branch, &upstream)?;
+        Ok(())
+    }
+
+    fn _push(&self, branch: &Branch, to: &mut Remote) -> Result<(), MyError> {
+
+        let branch_name = branch.name()?.ok_or("Branch name is invalid")?;
+        let mut push_opts = PushOptions::new();
+        let mut remote_callbacks = RemoteCallbacks::new();
+        remote_callbacks.credentials(get_credentials_callback);
+        push_opts.remote_callbacks(remote_callbacks);
+
+        let push_ref = format!("refs/heads/{0}:refs/heads/{0}", branch_name);
+
+        to.push(&[&push_ref], Some(&mut push_opts))?;
+
+        Ok(())
+    }
 }
+
+fn get_credentials_callback(
+    _user: &str,
+    user_from_url: Option<&str>,
+    _cred: git2::CredentialType,
+) -> Result<git2::Cred, git2::Error> {
+    let xdg_dir = git2_error!(BaseDirectories::with_prefix("collabook"));
+
+    let config_option = xdg_dir.find_config_file("Config.toml");
+    let config;
+    match config_option {
+        Some(c) => config = c,
+        None => return Err(git2::Error::from_str("Could not find config file")),
+    };
+
+    let mut file = git2_error!(fs::File::open(config));
+    let mut contents = String::new();
+    git2_error!(file.read_to_string(&mut contents));
+
+    let user: Author = git2_error!(toml::from_str(&contents));
+
+    match user.auth {
+        AuthType::Plain { user, pass } => git2::Cred::userpass_plaintext(&user, &pass),
+        AuthType::SSHAgent => git2::Cred::ssh_key_from_agent(user_from_url.unwrap_or("git")),
+        AuthType::SSHPath { path } => {
+            let path = path::Path::new(&path);
+            git2::Cred::ssh_key(user_from_url.unwrap_or("git"), None, &path, None)
+        }
+    }
+}
+
+
 
 //
 //#[derive(Serialize, Deserialize, Debug)]
@@ -486,6 +561,7 @@ pub fn git_get_branches(repo: &Repository) -> Result<Vec<String>, MyError> {
 //    Ok(HttpResponse::Ok())
 //}
 //
+/*
 pub fn git_rebase(
     repo: &Repository,
     remote_name: Option<&str>,
@@ -526,6 +602,7 @@ pub fn git_rebase(
     Ok(())
 }
 
+*/
 
 #[cfg(test)]
 mod tests {
@@ -628,10 +705,13 @@ mod tests {
         repo.find_commit(oid).unwrap();
 
         repo._create_branch("topic").unwrap();
-
         repo._switch_branch("topic").unwrap();
+        f.write_all(b"changes made on topic branch").unwrap();
 
-        assert_eq!(repo._current_branch().unwrap().name(), Ok(Some("topic")));
+        repo._switch_branch("master").unwrap();
+
+        let content = fs::read_to_string(path.join("test.txt")).unwrap();
+        assert_eq!(content, "some text");
     }
 
     #[test]
@@ -729,11 +809,9 @@ mod tests {
    }
 
     #[test]
-    fn test_rebase() {
+    fn test_rebase_no_conflict() {
         let temp_dir = TempDir::new("test_dir").unwrap();
-        //let path = temp_dir.path();
-
-        let path = PathBuf::from("/home/akhil/Videos/test4");
+        let path = temp_dir.path();
 
         let repo = BookRepo::new(&path).unwrap();
         let author = Author {
@@ -745,30 +823,113 @@ mod tests {
         // create a commit common on both branches
         let mut f = fs::File::create(&path.join("test.txt")).unwrap();
         f.write_all(b"initial content").unwrap();
-        let _oid1 = repo._commit("initial commit", &author).unwrap();
+        repo._commit("initial commit", &author).unwrap();
 
         repo._create_branch("topic").unwrap();
         
         //add a commit to master branch
         f.write_all(b"our content").unwrap();
-        let _oid2 = repo._commit("our modifications", &author).unwrap();
+        repo._commit("our modifications", &author).unwrap();
 
         //add a non conflict commit to topic branch
         repo._switch_branch("topic").unwrap();
         let mut f2 = fs::File::create(&path.join("test2.txt")).unwrap();
         f2.write_all(b"their content").unwrap();
-        let _oid3 = repo._commit("their modifications", &author).unwrap();
-        let mut f3 = fs::File::create(&path.join("test3.txt")).unwrap();
-        f3.write_all(b"hahahhaa").unwrap();
-        let _oid4 = repo._commit("more of their modifications", &author).unwrap();
+        repo._commit("their modifications", &author).unwrap();
 
         let branch = repo.find_branch("master", BranchType::Local).unwrap();
         let upstream = repo.find_branch("topic", BranchType::Local).unwrap();
 
+        repo._switch_branch("master").unwrap();
         repo._rebase(&branch, &upstream).unwrap();
 
+        assert_eq!(repo._log().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_rebase_conflict() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path();
+
+        let repo = BookRepo::new(&path).unwrap();
+        let author = Author {
+            name: "name".to_string(),
+            email: "email".to_string(),
+            auth: AuthType::SSHAgent
+        };
+
+        // create a commit common on both branches
+        let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+        f.write_all(b"initial content").unwrap();
+        repo._commit("initial commit", &author).unwrap();
+
+        repo._create_branch("topic").unwrap();
+        
+        //add a commit to master branch
+        f.write_all(b"our content").unwrap();
+        repo._commit("our modifications", &author).unwrap();
+
+        //add a conflict commit to topic branch
+        repo._switch_branch("topic").unwrap();
+        f.write_all(b"their content").unwrap();
+        repo._commit("their modifications", &author).unwrap();
+
+        let branch = repo.find_branch("master", BranchType::Local).unwrap();
+        let upstream = repo.find_branch("topic", BranchType::Local).unwrap();
+
         repo._switch_branch("master").unwrap();
-        assert_eq!(repo._log().unwrap().len(), 4);
+        assert!(repo._rebase(&branch, &upstream).is_err());
+    }
+
+    #[test]
+    fn test_rebase_continue() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path();
+
+        let repo = BookRepo::new(&path).unwrap();
+        let author = Author {
+            name: "name".to_string(),
+            email: "email".to_string(),
+            auth: AuthType::SSHAgent
+        };
+
+        // create a commit common on both branches
+        let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+        f.write_all(b"initial content").unwrap();
+        repo._commit("initial commit", &author).unwrap();
+
+        repo._create_branch("topic").unwrap();
+        
+        //add a commit to master branch
+        f.write_all(b"\nour content").unwrap();
+        repo._commit("our modifications", &author).unwrap();
+
+        //add a conflicting commit to topic branch
+        repo._switch_branch("topic").unwrap();
+        f.write_all(b"\ntheir content").unwrap();
+        repo._commit("their modifications", &author).unwrap();
+
+        let branch = repo.find_branch("master", BranchType::Local).unwrap();
+        let upstream = repo.find_branch("topic", BranchType::Local).unwrap();
+
+        repo._switch_branch("master").unwrap();
+        assert!(repo._rebase(&branch, &upstream).is_err());
+
+        //resolve the conflicts
+        let mut f1 = fs::OpenOptions::new().truncate(true).write(true).open(path.join("test.txt")).unwrap();
+        f1.write_all(b"resolved conflict").unwrap();
+
+        repo._rebase_continue().unwrap();
+
+    }
+
+    #[test]
+    #[ignore]
+    fn test_pull() {
+        let path = PathBuf::from("/home/akhil/Videos/testbook5");
+
+        let repo = BookRepo::from_location(&path).unwrap();
+        repo._pull("origin").unwrap();
     }
 }
 
