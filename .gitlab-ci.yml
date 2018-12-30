@@ -1,0 +1,18 @@
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
+stages:
+  - test
+
+linux test:
+  stage: test
+  script:
+    - rustc --version
+    - cargo --version
+    - cargo test --verbose
+  cache:
+    paths:
+      - .cargo/
+      - target/
+  only:
+    - tags
