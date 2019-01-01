@@ -62,6 +62,12 @@ impl From<xdg::BaseDirectoriesError> for MyError {
     }
 }
 
+impl From<app_dirs::AppDirsError> for MyError {
+    fn from(e: app_dirs::AppDirsError) -> MyError {
+        MyError(e.to_string())
+    }
+}
+
 impl From<toml::de::Error> for MyError {
     fn from(e: toml::de::Error) -> MyError {
         MyError(e.to_string())

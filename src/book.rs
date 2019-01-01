@@ -8,7 +8,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::path::PathBuf;
 use walkdir::WalkDir;
-use xdg::BaseDirectories;
+use app_dirs::{AppDataType, AppInfo};
 
 #[derive(Serialize, Debug)]
 struct Book {
@@ -341,6 +341,9 @@ pub enum AuthType {
     SSHPath { path: String },
 }
 
+
+const APP_INFO: AppInfo = AppInfo{name: "Collabook", author: "Akhil"};
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Author {
     pub name: String,
@@ -350,10 +353,7 @@ pub struct Author {
 
 impl Author {
     pub fn read_from_disk() -> Result<Self, MyError> {
-        let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
-        let path = xdg_dirs
-            .find_config_file("Config.toml")
-            .ok_or("Config not found")?;
+        let path = app_dirs::app_root(AppDataType::UserConfig, &APP_INFO)?;
         let mut file = fs::File::open(path)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
@@ -361,10 +361,9 @@ impl Author {
     }
 
     pub fn write_to_disk(&self) -> Result<(), MyError> {
-        let xdg_dirs = BaseDirectories::with_prefix("collabook")?;
-        let path = xdg_dirs.place_config_file("Config.toml")?;
         let contents = toml::to_string(self)?;
-        let mut file = fs::File::create(path)?;
+        let path = app_dirs::app_root(AppDataType::UserConfig, &APP_INFO)?;
+        let mut file = fs::File::create(&path.join("Config.toml"))?;
         file.write_all(contents.as_bytes())?;
         Ok(())
     }
@@ -386,6 +385,27 @@ mod tests {
     use super::*;
     use std::path::Path;
     use tempdir::TempDir;
+
+    #[test]
+    fn test_config_file() {
+
+        const APP_INFO: AppInfo = AppInfo{name: "Collabook", author: "Akhil"};
+
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path();
+        let author = Author {name: "akhil".to_string(), email: "email".to_string(), auth: AuthType::SSHAgent};
+
+        if cfg!(target_os = "linux") {
+            std::env::set_var("HOME", path.join("test_dir"));
+        } else if cfg!(target_os = "macos") {
+            std::env::set_var("HOME", path.join("test_dir"));
+        } else {
+            std::env::set_var("APPDATA", path.join("test_dir"));
+        }
+        author.write_to_disk().unwrap();
+        let path2 = app_dirs::get_app_root(AppDataType::UserConfig, &APP_INFO).unwrap();
+        assert_eq!(path2.join("Config.toml").exists(), true);
+    }
 
     #[test]
     fn file_from_location() {
