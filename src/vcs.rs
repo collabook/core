@@ -4,17 +4,14 @@ use git2::{
     build::CheckoutBuilder, Branch, BranchType, Index, IndexAddOption, Oid, PushOptions, Remote,
     RemoteCallbacks, Repository,
 };
-use std::fs;
-use std::io::prelude::*;
 use std::ops::Deref;
 use std::path;
 use std::path::Path;
 use std::path::PathBuf;
-use xdg::BaseDirectories;
+//use xdg::BaseDirectories;
 
 use crate::book::*;
 use crate::error::MyError;
-use crate::git2_error;
 
 pub struct BookRepo {
     repo: Repository,
@@ -261,20 +258,8 @@ fn get_credentials_callback(
     user_from_url: Option<&str>,
     _cred: git2::CredentialType,
 ) -> Result<git2::Cred, git2::Error> {
-    let xdg_dir = git2_error!(BaseDirectories::with_prefix("collabook"));
 
-    let config_option = xdg_dir.find_config_file("Config.toml");
-    let config;
-    match config_option {
-        Some(c) => config = c,
-        None => return Err(git2::Error::from_str("Could not find config file")),
-    };
-
-    let mut file = git2_error!(fs::File::open(config));
-    let mut contents = String::new();
-    git2_error!(file.read_to_string(&mut contents));
-
-    let user: Author = git2_error!(toml::from_str(&contents));
+    let user: Author = Author::read_from_disk().map_err(|_| git2::Error::from_str("Config file not found"))?;
 
     match user.auth {
         AuthType::Plain { user, pass } => git2::Cred::userpass_plaintext(&user, &pass),
@@ -429,6 +414,8 @@ pub fn pull_request(info: Json<PullRequest>) -> Result<impl Responder, MyError> 
 mod tests {
     use super::*;
     use tempdir::TempDir;
+    use std::fs;
+    use std::io::prelude::*;
 
     #[test]
     fn test_commit() {

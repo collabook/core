@@ -56,12 +56,6 @@ impl From<serde_json::Error> for MyError {
     }
 }
 
-impl From<xdg::BaseDirectoriesError> for MyError {
-    fn from(e: xdg::BaseDirectoriesError) -> MyError {
-        MyError(e.to_string())
-    }
-}
-
 impl From<app_dirs::AppDirsError> for MyError {
     fn from(e: app_dirs::AppDirsError) -> MyError {
         MyError(e.to_string())
