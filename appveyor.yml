@@ -8,11 +8,11 @@ install:
   - rustc -V
   - cargo -V
 
-build:
-  - cargo build --release
-
 cache:
   - 'C:\Users\appveyor\.cargo'
+
+before_deploy:
+  - cargo build --release
 
 test_script:
   - cargo test --target %TARGET%
@@ -29,5 +29,4 @@ deploy:
     secure: B9mugMz4P5+/VgjwGzaPFHO8UfJizn8Dx5d2VDlcOgM5PcJCorHu2Fj0eKAoXJMb
   artifact: target\release\core.exe
   on:
-    branch: master
-    APPVEYOR_REPO_TAG: true   
+    appveyor_repo_tag: true
