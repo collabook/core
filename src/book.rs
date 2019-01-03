@@ -105,7 +105,8 @@ impl File {
         }
 
         //read synopsis
-        let id = Sha1::from(rel_path_str).digest().to_string(); //fails on windows because path use `\` instead of `/` on windows
+        let rel_path_str2 = rel_path_str.replace("\\", "/"); //needed in windows as windows uses `\` instead of `/` on windows
+        let id = Sha1::from(rel_path_str2).digest().to_string();  
         //TODO: create synopsis file if not present
         let mut syn_file = fs::File::open(&book.as_ref().join(".collabook/synopsis").join(&id))?;
         let mut synopsis = String::new();

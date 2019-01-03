@@ -503,8 +503,10 @@ mod tests {
 
         let repo = BookRepo::new(path).unwrap();
 
-        let mut f = fs::File::create(&path.join("test.txt")).unwrap();
-        f.write_all(b"some text").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"some text").unwrap();
+        }
 
         let author = Author {
             name: "name".to_string(),
@@ -517,7 +519,11 @@ mod tests {
 
         repo._create_branch("topic").unwrap();
         repo._switch_branch("topic").unwrap();
-        f.write_all(b"changes made on topic branch").unwrap();
+
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"changes made on topic branch").unwrap();
+        }
 
         repo._switch_branch("master").unwrap();
 
