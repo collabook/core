@@ -8,11 +8,11 @@ install:
   - rustc -V
   - cargo -V
 
-build:
-  - cargo build --release
-
 cache:
   - 'C:\Users\appveyor\.cargo'
+
+build_script:
+  - cargo build --release
 
 test_script:
   - cargo test --target %TARGET%
