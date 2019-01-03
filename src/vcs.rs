@@ -163,6 +163,8 @@ impl BookRepo {
         Ok(commits)
     }
 
+    //TODO: Implement hard reset to a particular commit
+
     fn _checkout_commit(&self, oid: Oid) -> Result<(), MyError> {
         // let commit_oid = git2::Oid::from_str(oid)?; the request handler should perform this
         let commit = self.find_commit(oid)?;
@@ -258,8 +260,8 @@ fn get_credentials_callback(
     user_from_url: Option<&str>,
     _cred: git2::CredentialType,
 ) -> Result<git2::Cred, git2::Error> {
-
-    let user: Author = Author::read_from_disk().map_err(|_| git2::Error::from_str("Config file not found"))?;
+    let user: Author =
+        Author::read_from_disk().map_err(|_| git2::Error::from_str("Config file not found"))?;
 
     match user.auth {
         AuthType::Plain { user, pass } => git2::Cred::userpass_plaintext(&user, &pass),
@@ -413,9 +415,9 @@ pub fn pull_request(info: Json<PullRequest>) -> Result<impl Responder, MyError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempdir::TempDir;
     use std::fs;
     use std::io::prelude::*;
+    use tempdir::TempDir;
 
     #[test]
     fn test_commit() {
@@ -585,6 +587,8 @@ mod tests {
         let oid1 = repo._commit("test commit 1", &author).unwrap();
 
         f.write_all(b"some other text").unwrap();
+        f.sync_all().unwrap();
+
         let _oid2 = repo._commit("test commit 2 ", &author).unwrap();
 
         repo._checkout_commit(oid1).unwrap();

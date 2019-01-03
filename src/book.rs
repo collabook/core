@@ -1,6 +1,7 @@
 use crate::error::MyError;
 use crate::vcs::*;
 use actix_web::{HttpRequest, HttpResponse, Json, Responder};
+use app_dirs::{AppDataType, AppInfo};
 use sha1::Sha1;
 use std::collections::HashMap;
 use std::fs;
@@ -8,7 +9,6 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::path::PathBuf;
 use walkdir::WalkDir;
-use app_dirs::{AppDataType, AppInfo};
 
 #[derive(Serialize, Debug)]
 struct Book {
@@ -105,7 +105,7 @@ impl File {
         }
 
         //read synopsis
-        let id = Sha1::from(rel_path_str).digest().to_string();
+        let id = Sha1::from(rel_path_str).digest().to_string(); //fails on windows because path use `\` instead of `/` on windows
         //TODO: create synopsis file if not present
         let mut syn_file = fs::File::open(&book.as_ref().join(".collabook/synopsis").join(&id))?;
         let mut synopsis = String::new();
@@ -341,8 +341,10 @@ pub enum AuthType {
     SSHPath { path: String },
 }
 
-
-const APP_INFO: AppInfo = AppInfo{name: "Collabook", author: "Akhil"};
+const APP_INFO: AppInfo = AppInfo {
+    name: "Collabook",
+    author: "Akhil",
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Author {
@@ -388,12 +390,18 @@ mod tests {
 
     #[test]
     fn test_config_file() {
-
-        const APP_INFO: AppInfo = AppInfo{name: "Collabook", author: "Akhil"};
+        const APP_INFO: AppInfo = AppInfo {
+            name: "Collabook",
+            author: "Akhil",
+        };
 
         let temp_dir = TempDir::new("test_dir").unwrap();
         let path = temp_dir.path();
-        let author = Author {name: "akhil".to_string(), email: "email".to_string(), auth: AuthType::SSHAgent};
+        let author = Author {
+            name: "akhil".to_string(),
+            email: "email".to_string(),
+            auth: AuthType::SSHAgent,
+        };
 
         if cfg!(target_os = "linux") {
             std::env::set_var("HOME", path.join("test_dir"));
