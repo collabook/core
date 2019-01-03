@@ -8,14 +8,12 @@ install:
   - rustc -V
   - cargo -V
 
-build:
-  - cargo build --release
-
 cache:
   - 'C:\Users\appveyor\.cargo'
 
 test_script:
   - cargo test --target %TARGET%
+  - cargo build --release
 
 artifacts:
   - path: target\release\core.exe
