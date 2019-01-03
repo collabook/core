@@ -643,20 +643,29 @@ mod tests {
         };
 
         // create a commit common on both branches
-        let mut f = fs::File::create(&path.join("test.txt")).unwrap();
-        f.write_all(b"initial content").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"initial content").unwrap();
+        }
         repo._commit("initial commit", &author).unwrap();
 
         repo._create_branch("topic").unwrap();
 
         //add a commit to master branch
-        f.write_all(b"our content").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"our content").unwrap();
+        }
         repo._commit("our modifications", &author).unwrap();
 
         //add a non conflict commit to topic branch
         repo._switch_branch("topic").unwrap();
-        let mut f2 = fs::File::create(&path.join("test2.txt")).unwrap();
-        f2.write_all(b"their content").unwrap();
+
+        {
+            let mut f2 = fs::File::create(&path.join("test2.txt")).unwrap();
+            f2.write_all(b"their content").unwrap();
+        }
+
         repo._commit("their modifications", &author).unwrap();
 
         let branch = repo.find_branch("master", BranchType::Local).unwrap();
@@ -681,19 +690,27 @@ mod tests {
         };
 
         // create a commit common on both branches
-        let mut f = fs::File::create(&path.join("test.txt")).unwrap();
-        f.write_all(b"initial content").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"initial content").unwrap();
+        }
         repo._commit("initial commit", &author).unwrap();
 
         repo._create_branch("topic").unwrap();
 
         //add a commit to master branch
-        f.write_all(b"our content").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"our content").unwrap();
+        }
         repo._commit("our modifications", &author).unwrap();
 
         //add a conflict commit to topic branch
         repo._switch_branch("topic").unwrap();
-        f.write_all(b"their content").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"their content").unwrap();
+        }
         repo._commit("their modifications", &author).unwrap();
 
         let branch = repo.find_branch("master", BranchType::Local).unwrap();
@@ -716,19 +733,27 @@ mod tests {
         };
 
         // create a commit common on both branches
-        let mut f = fs::File::create(&path.join("test.txt")).unwrap();
-        f.write_all(b"initial content").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"initial content").unwrap();
+        }
         repo._commit("initial commit", &author).unwrap();
 
         repo._create_branch("topic").unwrap();
 
         //add a commit to master branch
-        f.write_all(b"\nour content").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"\nour content").unwrap();
+        }
         repo._commit("our modifications", &author).unwrap();
 
         //add a conflicting commit to topic branch
         repo._switch_branch("topic").unwrap();
-        f.write_all(b"\ntheir content").unwrap();
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"\ntheir content").unwrap();
+        }
         repo._commit("their modifications", &author).unwrap();
 
         let branch = repo.find_branch("master", BranchType::Local).unwrap();
@@ -738,12 +763,14 @@ mod tests {
         assert!(repo._rebase(&branch, &upstream).is_err());
 
         //resolve the conflicts
-        let mut f1 = fs::OpenOptions::new()
-            .truncate(true)
-            .write(true)
-            .open(path.join("test.txt"))
-            .unwrap();
-        f1.write_all(b"resolved conflict").unwrap();
+        {
+            let mut f1 = fs::OpenOptions::new()
+                .truncate(true)
+                .write(true)
+                .open(path.join("test.txt"))
+                .unwrap();
+            f1.write_all(b"resolved conflict").unwrap();
+        }
 
         repo._rebase_continue().unwrap();
     }
