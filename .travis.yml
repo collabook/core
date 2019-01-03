@@ -10,4 +10,13 @@ cache: cargo
 
 script:
   - cargo test --verbose
-  - cargo build --verbose
+  - cargo build --release --verbose
+
+deploy:
+  provider: releases
+  api_key:
+    secure: euXBmssvv4+Yo0CxVlu9bXYm8YAy/Sw3zM5eK1BoAiXgjIjOx1mb8/pU1ZHbE/D1EZjZzCRKQsLEIZv1qBLrGkoUDUxefscHZfBMOeIGnybkRfg4mX7iXsmeN1hMlSXg3M7Q90k66MfE32uZPqJpGa7qO2PL7R5b6iRkmHB1cRoVT1iDCLKTvI0AQipShKhK1TO/mRZlj8PnYxrIe18UsHEDRxJUusMUde1CzmAUVwOEa+CcAruxaXlvbr6spEsbDyjDwcfVhVXrVbmFMiGvInxZ4SqWO6v/E37gi8wC2kqm9JNRDkvCSMmZKHFL9JJaBGC4LzXmMFbZEAgf9hrDuFdpybyPh3sWBTylON3Eoe0QFjhzz7sWzbD7COxcxFZmhCS35NNrjtvS8XJJGm4aXwT3xh0JRcxJ76qtXNx3QI9y+Mz8xV6dkIYl3hKTPu3tKie/YDoGb/8MFwXHA0jkHeH/qYjtZ041MNgPLUoXgspdYAa58k/UXHHJnthJ7llSD6kqdkmU/j00VHsfTIzzJhYegaIBNO9y1wTljSnjju2mLpI3nYXUoVKloY03BN0mPe5rR9nI5+PobCDAqnT8hBoN3JhidsG/GwHGirxt5g/AlFUm9Lgz4vfQ4/cStzLZLwLY85fK+ZnL+G8rHMgjoyhuPnOFwj+01xYezga5aTc=
+  file: "target/release/core"
+  skip_cleanup: true
+  on:
+    tags: true

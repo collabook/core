@@ -5,14 +5,29 @@ install:
   - ps: Start-FileDownload "https://static.rust-lang.org/dist/rust-nightly-${env:TARGET}.exe"
   - rust-nightly-%TARGET%.exe /VERYSILENT /NORESTART /DIR="C:\Program Files (x86)\Rust"
   - set PATH=%PATH%;C:\Program Files (x86)\Rust\bin
-  - set CARGO_TARGET_DIR=%APPVEYOR_BUILD_FOLDER%\target
   - rustc -V
   - cargo -V
 
-build: false
+build:
+  - cargo build --release
 
 cache:
   - 'C:\Users\appveyor\.cargo'
 
 test_script:
   - cargo test --target %TARGET%
+
+artifacts:
+  - path: target\release\core.exe
+    name: Core-Windows
+
+deploy:
+  release: Core-Windows
+  description: 'Collabook Core for Windows'
+  provider: GitHub
+  auth_token:
+    secure: B9mugMz4P5+/VgjwGzaPFHO8UfJizn8Dx5d2VDlcOgM5PcJCorHu2Fj0eKAoXJMb
+  artifact: target\release\core.exe
+  on:
+    branch: master
+    APPVEYOR_REPO_TAG: true   
