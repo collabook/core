@@ -11,20 +11,16 @@ install:
 cache:
   - 'C:\Users\appveyor\.cargo'
 
-before_deploy:
-  - cargo build --release
-
 build: false
 
 test_script:
   - cargo test --target %TARGET%
 
-artifacts:
-  - path: target\release\core.exe
-    name: Core-Windows
+before_deploy:
+  - cargo build --release
+  - ps: Push-AppveyorArtifact target\release\core.exe
 
 deploy:
-  release: Core-Windows
   description: 'Collabook Core for Windows'
   provider: GitHub
   auth_token:
