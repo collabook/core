@@ -582,16 +582,19 @@ mod tests {
             auth: AuthType::SSHAgent,
         };
 
-        let mut f = fs::File::create(&path.join("test.txt")).unwrap();
-        f.write_all(b"some text").unwrap();
-        let oid1 = repo._commit("test commit 1", &author).unwrap();
+        let oid = {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"some text").unwrap();
+            let oid1 = repo._commit("test commit 1", &author).unwrap();
 
-        f.write_all(b"some other text").unwrap();
-        f.sync_all().unwrap();
+            f.write_all(b"some other text").unwrap();
+            //f.sync_all().unwrap();
 
-        let _oid2 = repo._commit("test commit 2 ", &author).unwrap();
+            let _oid2 = repo._commit("test commit 2 ", &author).unwrap();
+            oid1
+        };
 
-        repo._checkout_commit(oid1).unwrap();
+        repo._checkout_commit(oid).unwrap();
         let content = fs::read_to_string(&path.join("test.txt")).unwrap();
 
         assert_eq!(content, "some text".to_string());
