@@ -21,7 +21,7 @@ before_deploy:
   - ps: Push-AppveyorArtifact target\release\core.exe
 
 deploy:
-  description: 'Collabook Core for Windows'
+  description: 'Collabook Core'
   provider: GitHub
   auth_token:
     secure: B9mugMz4P5+/VgjwGzaPFHO8UfJizn8Dx5d2VDlcOgM5PcJCorHu2Fj0eKAoXJMb
