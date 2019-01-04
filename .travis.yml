@@ -9,15 +9,15 @@ rust:
 cache: cargo
 
 script:
-  - cargo test --verbose
+  - cargo test
 
 before_deploy:
-  - cargo build --release --verbose
+  - cargo build --release
 
 deploy:
   provider: releases
   api_key:
-    secure: NEW3WlPKw+qXjeyVF8+j79hOSHL34iL/YEgClrbv0uiRJPVfVHneeZN7eD6GHsfvFwJDOvKnarhZZJNFdsnyTTvzY0bsQqfueBQz+yxWY0oJyE1At/ZPAG9yWBN4Abe/NqkkfBVhW02akfWoxuDNY14+uXA/m+0XTePGP3t3ZamU4EeWaN/DJU6G/Ib4XFI8JGWM5x9ZG8dsT+1A03s0O52ZrfaMr69QvHhpvAtMAzay/j4X4ZEDOO14ScF+O5Jxr3um5Vws9x55PipF6rjTEKMPce68emGZAnTHMAZEOfOlNCWlDMLZvx3PGelAHTqLB8bgiZT7iQW7rMSsNmqO5Jat+Efu9lOcflLoHxR4lyZgfr8FgJQDLO6z+C68hVPWziEO+E6ckxxCg+DEM7ZcxPu6nEmm9VNy8zR6Cnornsti2mCZDuCu5l0mPFtK8LjqJEb1PHZZMUKybSB+PSlwQ3MtgAVo0OjEyMd8OX8fKQV0zaqgqOyOncetW8MeG0FBNFUSy0c5vSwhKDYTrP4H+g0viGf0L6vapvaf/iian//WSDq+DRetk1W5GMTbTGn87+JQkPXFs0tBjlq+05Pf6HbNtKLioTitvFf4oMkDj0h5PPjRBH2bhQi2u1nXZeLHJQRy5yejN55RNydSvknTE6aiUe0j2JDCdmKIiFi6MXw=
+    secure: wj2ea6pXeP6RSvPgr778P1RmcRwE49QVR1Pw7ObJPfE8WAVN9qOdoirUb3ePa4mdTZ9luhr68wpT1nAFRNJ7Vy1wlVTRzxog4QG9wBDt7Kj/h2S4RbmfkXyWHpEFc0GIYkt4ZRdzdyRPoaesAT+6mLWEHHZqrrLlNBE0C3iGWfZJhcgkwcIP8u68Lna7UFhszmGW8D07AaPPntcluL/88W/OgEpeZ9N5be5srzcNUYTsXTjJW+gBu9/qMUkk2HHWA0mcuQwhARnuNrBn1fw8dgkJKvHdXAuB/jrl+5gIErS3+mhm/i14Ok0brzPRg7Nplt97dq9fQdlX1nOTxygGk+5Rgl8RPh+ZzrMS14L9XYFHDzCi7qTOT1t348YE1vLUAgHj57j/2EJ8hhM3LOjbms4vR8dAeuUXz9xJUBmkSvm1R4WLqoryfkv3ZtFYpIaRpLZcWU6xBw4EBp1qm+kH919HxXlLc+vgEzo9QV+SKKhaj3YQLj++zWtbxl2RnL8aj/NzpnE3vnvMk9GLRBYuSq5d5+ZMxtKs2q9mT7HUfDxx+Ii3Lh+ypJT+SLtMaipecZ9N7VCs0t5lkJb7p0Sn2IYK1VTaoYFYiEqBA/jtByHPM5daKcIR+0GGfcFt/gpZDLapBjNt9sVl2iKohkNMLh9RqneqbWowKuJJcXid1po=
   file: target/release/core
   skip_cleanup: true
   on:
