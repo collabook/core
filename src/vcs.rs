@@ -188,6 +188,9 @@ impl BookRepo {
         )?;
 
         while let Some(Ok(op)) = rebase.next() {
+            //TODO: we might have to add files to index before commiting
+            // actually if there are empty commits then patch already applied is given by libgit2
+            // or something like that.
             let commit = self.find_commit(op.id())?;
             let msg = commit.message().unwrap_or("");
             let sig = commit.author();
@@ -409,6 +412,21 @@ pub struct PullRequest<P: AsRef<Path> = PathBuf, S: AsRef<str> = String> {
 pub fn pull_request(info: Json<PullRequest>) -> Result<impl Responder, MyError> {
     let repo = BookRepo::from_location(&info.location)?;
     repo._pull(&info.name)?;
+    Ok(HttpResponse::Ok())
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CloneRequest<P: AsRef<Path> = PathBuf, S: AsRef<str> = String> {
+    location: P,
+    url: S
+}
+
+pub fn clone_request(info: Json<CloneRequest>) -> Result<impl Responder, MyError> {
+    let mut remote_callbacks = RemoteCallbacks::new();
+    remote_callbacks.credentials(get_credentials_callback);
+    let mut ft_opts = git2::FetchOptions::new();
+    ft_opts.remote_callbacks(remote_callbacks);
+    let _ = git2::build::RepoBuilder::new().fetch_options(ft_opts).clone(&info.url, &info.location)?;
     Ok(HttpResponse::Ok())
 }
 

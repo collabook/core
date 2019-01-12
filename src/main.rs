@@ -79,6 +79,9 @@ fn main() {
                 .resource("/gitrebasecontinue", |r| {
                     r.method(http::Method::POST).with(rebase_continue_request)
                 })
+                .resource("/gitclone", |r| {
+                    r.method(http::Method::POST).with(clone_request)
+                })
                 .register()
         })
     })

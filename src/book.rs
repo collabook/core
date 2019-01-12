@@ -357,7 +357,7 @@ pub struct Author {
 impl Author {
     pub fn read_from_disk() -> Result<Self, MyError> {
         let path = app_dirs::app_root(AppDataType::UserConfig, &APP_INFO)?;
-        let mut file = fs::File::open(path)?;
+        let mut file = fs::File::open(path.join("Config.toml"))?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
         Ok(toml::from_str(&contents)?)
