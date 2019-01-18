@@ -451,6 +451,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         let oid = repo._commit("test commit", &author).unwrap();
@@ -476,6 +477,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         let _oid = repo._commit("test commit", &author).unwrap();
@@ -502,6 +504,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         let oid = repo._commit("test commit", &author).unwrap();
@@ -530,6 +533,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         let oid = repo._commit("test commit", &author).unwrap();
@@ -582,6 +586,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         let mut f = fs::File::create(&path.join("test.txt")).unwrap();
@@ -604,6 +609,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         let oid = {
@@ -634,6 +640,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         let mut f = fs::File::create(&path.join("test.txt")).unwrap();
@@ -658,6 +665,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         // create a commit common on both branches
@@ -705,6 +713,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         // create a commit common on both branches
@@ -748,6 +757,7 @@ mod tests {
             name: "name".to_string(),
             email: "email".to_string(),
             auth: AuthType::SSHAgent,
+            token: "token".to_string(),
         };
 
         // create a commit common on both branches

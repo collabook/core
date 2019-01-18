@@ -1,6 +1,6 @@
 [package]
 name = "core"
-version = "0.1.0"
+version = "0.3.0"
 authors = ["Akhil kp <akhilkpdasan@gmail.com>"]
 edition = "2018"
 
@@ -17,3 +17,7 @@ tempdir = "0.3.7"
 sha1 = "0.6.0"
 walkdir = "2.2.7"
 app_dirs = "1.2.1"
+graphql_client = "0.6.0"
+reqwest = "0.9.8"
+http = "0.1.14"
+log = "0.4.6"

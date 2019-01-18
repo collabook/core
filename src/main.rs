@@ -1,16 +1,19 @@
-#[macro_use]
-extern crate serde_derive;
+#[macro_use] extern crate serde_derive;
+//#[cfg_attr(test, macro_use)] extern crate serde_json;
+#[macro_use] extern crate log;
 
 mod book;
 mod error;
 mod macros;
 mod vcs;
+mod github;
 
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App};
 //use std::path::Path;
 use crate::book::*;
 use crate::vcs::*;
+use crate::github::*;
 
 //TODO: impl my own json type for better error msg on Deserialize error
 
@@ -81,6 +84,15 @@ fn main() {
                 })
                 .resource("/gitclone", |r| {
                     r.method(http::Method::POST).with(clone_request)
+                })
+                .resource("/hubcreate", |r| {
+                    r.method(http::Method::POST).with(github_create_repo_request)
+                })
+                .resource("/hubdelete", |r| {
+                    r.method(http::Method::POST).with(github_delete_repo_request)
+                })
+                .resource("/hubfork", |r| {
+                    r.method(http::Method::POST).with(github_fork_repo_request)
                 })
                 .register()
         })

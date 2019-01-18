@@ -1,5 +1,6 @@
 use actix_web::HttpResponse;
 use std::fmt;
+use std::cmp;
 
 #[derive(Debug)]
 pub struct MyError(pub String);
@@ -77,5 +78,17 @@ impl From<toml::ser::Error> for MyError {
 impl From<git2::Error> for MyError {
     fn from(e: git2::Error) -> MyError {
         MyError(e.message().to_string())
+    }
+}
+
+impl From<reqwest::Error> for MyError {
+    fn from(e: reqwest::Error) -> MyError {
+        MyError(e.to_string())
+    }
+}
+
+impl cmp::PartialEq for MyError {
+    fn eq(&self, other: &MyError) -> bool {
+        self.0 == other.0
     }
 }

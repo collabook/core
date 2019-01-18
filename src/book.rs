@@ -351,7 +351,14 @@ const APP_INFO: AppInfo = AppInfo {
 pub struct Author {
     pub name: String,
     pub email: String,
+    pub token: String,
     pub auth: AuthType,
+}
+
+impl crate::github::AccessToken for Author {
+    fn get(&self) -> &str {
+        &self.token
+    }
 }
 
 impl Author {
@@ -401,6 +408,7 @@ mod tests {
         let author = Author {
             name: "akhil".to_string(),
             email: "email".to_string(),
+            token: "token".to_string(),
             auth: AuthType::SSHAgent,
         };
 
@@ -414,6 +422,8 @@ mod tests {
         author.write_to_disk().unwrap();
         let path2 = app_dirs::get_app_root(AppDataType::UserConfig, &APP_INFO).unwrap();
         assert_eq!(path2.join("Config.toml").exists(), true);
+
+        assert!(Author::read_from_disk().is_ok());
     }
 
     #[test]
@@ -553,6 +563,7 @@ mod tests {
             name: "".to_string(),
             email: "".to_string(),
             auth: AuthType::SSHAgent,
+            token: "".to_string()
         };
         author.write_to_disk().unwrap();
     }
