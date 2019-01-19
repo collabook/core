@@ -94,6 +94,9 @@ fn main() {
                 .resource("/hubfork", |r| {
                     r.method(http::Method::POST).with(github_fork_repo_request)
                 })
+                .resource("/syncfork", |r| {
+                    r.method(http::Method::POST).with(sync_fork_request)
+                })
                 .register()
         })
     })
