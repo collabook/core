@@ -1,7 +1,11 @@
 use crate::error::MyError;
 use crate::vcs::*;
-use actix_web::{HttpRequest, HttpResponse, Json, Responder};
+use crate::AppState;
+use actix_web::{
+    AsyncResponder, FutureResponse, HttpRequest, HttpResponse, Json, Responder, State,
+};
 use app_dirs::{AppDataType, AppInfo};
+use futures::Future;
 use sha1::Sha1;
 use std::collections::HashMap;
 use std::fs;
@@ -11,7 +15,7 @@ use std::path::PathBuf;
 use walkdir::WalkDir;
 
 #[derive(Serialize, Debug)]
-struct Book {
+pub struct Book {
     files: HashMap<String, File>,
     location: PathBuf,
     name: String,
@@ -105,8 +109,10 @@ impl File {
         }
 
         //read synopsis
+        //TODO: should it be error if synopsis file is not found?
+        //
         let rel_path_str2 = rel_path_str.replace("\\", "/"); //needed in windows as windows uses `\` instead of `/` on windows
-        let id = Sha1::from(rel_path_str2).digest().to_string();  
+        let id = Sha1::from(rel_path_str2).digest().to_string();
         //TODO: create synopsis file if not present
         let mut syn_file = fs::File::open(&book.as_ref().join(".collabook/synopsis").join(&id))?;
         let mut synopsis = String::new();
@@ -131,7 +137,7 @@ fn is_hidden(entry: &walkdir::DirEntry) -> bool {
     entry
         .file_name()
         .to_str()
-        .map(|s| s.starts_with("."))
+        .map(|s| s.starts_with(".") || s.contains("target"))
         .unwrap_or(false)
 }
 
@@ -186,7 +192,9 @@ impl Book {
         Ok(())
     }
 
-    fn open(location: &Path) -> Result<Self, MyError> {
+    pub fn open(location: &Path) -> Result<Self, MyError> {
+        //TODO: should ignore target folder
+
         let mut files: HashMap<String, File> = HashMap::new();
 
         //check if is a collabook directory
@@ -223,6 +231,36 @@ impl Book {
             branches,
         })
     }
+
+    pub fn combine_content<S: AsRef<str>>(&self, ids: &[S]) -> Result<String, MyError> {
+        let mut content = String::new();
+        for id in ids {
+            let file = self.files.get(id.as_ref()).ok_or("File doesn't exist")?;
+            let c = file.content.clone().ok_or("Is a directory")?;
+            content.push_str(&c);
+        }
+        Ok(content)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CompileBookRequest<P: AsRef<Path> = PathBuf, S: AsRef<str> = String> {
+    pub location: P,
+    pub ids: Vec<S>,
+}
+
+pub fn compile_book(
+    (state, info): (State<AppState>, Json<CompileBookRequest>),
+) -> FutureResponse<HttpResponse> {
+    state
+        .compiler
+        .send(info.into_inner())
+        .from_err()
+        .and_then(|res| match res {
+            Ok(()) => Ok(HttpResponse::Ok().into()),
+            Err(e) => Ok(HttpResponse::InternalServerError().body(e.to_string())),
+        })
+        .responder()
 }
 
 pub fn new_book<P: AsRef<Path>>(info: Json<NewBookRequest<P>>) -> Result<impl Responder, MyError> {
@@ -379,7 +417,7 @@ impl Author {
     }
 }
 
-pub fn get_author(_req: &HttpRequest) -> Result<impl Responder, MyError> {
+pub fn get_author(_req: &HttpRequest<crate::AppState>) -> Result<impl Responder, MyError> {
     let author = Author::read_from_disk()?;
     Ok(HttpResponse::Ok().json(author))
 }
@@ -563,8 +601,111 @@ mod tests {
             name: "".to_string(),
             email: "".to_string(),
             auth: AuthType::SSHAgent,
-            token: "".to_string()
+            token: "".to_string(),
         };
         author.write_to_disk().unwrap();
     }
+
+    /*
+    #[test]
+    fn compile_book_works() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path().join("test_book");
+        let req = Json(NewBookRequest {
+            name: "test_book".to_string(),
+            location: &path,
+            genre: Genre::Fantasy,
+        });
+        let book = Book::new(&req).unwrap();
+        book.compile("<p>some content</p>").unwrap();
+        assert!(path.join("target/book.pdf").exists());
+    }
+    */
+
+    fn setup_book() -> (Book, TempDir) {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path().join("test_book");
+
+        let mut files = HashMap::new();
+        let root = File::new("test_book", "", "0", true, false);
+        let book = File::new("Book", "Book", &root.id, true, false);
+        let chap1 = File::new("Chap1", "Book/Chap1", &book.id, true, false);
+        let sec1 = File::new("Sec1", "Book/Chap1/Sec1", &chap1.id, false, false);
+        let sec2 = File::new("Sec2", "Book/Chap1/Sec2", &chap1.id, false, false);
+        let chap2 = File::new("Chap2", "Book/Chap2", &book.id, true, false);
+        let c2_sec1 = File::new("Sec1", "Book/Chap2/Sec1", &chap2.id, false, false);
+
+        files.insert(root.id.clone(), root);
+        files.insert(book.id.clone(), book);
+        files.insert(chap1.id.clone(), chap1);
+        files.insert(sec1.id.clone(), sec1);
+        files.insert(sec2.id.clone(), sec2);
+        files.insert(chap2.id.clone(), chap2);
+        files.insert(c2_sec1.id.clone(), c2_sec1);
+
+        let remotes = Vec::new();
+        let branches = Vec::new();
+
+        let book = Book {
+            files,
+            location: path,
+            name: "test_book".to_string(),
+            remotes,
+            branches,
+        };
+        (book, temp_dir)
+    }
+
+    #[test]
+    fn combine_content_works() {
+        let (mut book, _) = setup_book();
+
+        let ids = [
+            "0ad0fd5d1787ebf9465fb46c743d35eb6b9ab783",
+            "ad547798d6f4c6e1224226f5bd5253b93fde470f",
+            "722935af1ff2d97062f48532f2ef95827da39b93",
+        ];
+        let mut c1_s1 = book.files.get_mut(ids[0]).unwrap();
+        c1_s1.content = Some("hello from sec1\n".to_string());
+
+        let mut c1_s2 = book.files.get_mut(ids[1]).unwrap();
+        c1_s2.content = Some("hello from sec2\n".to_string());
+
+        let mut c2_s1 = book.files.get_mut(ids[2]).unwrap();
+        c2_s1.content = Some("hello from chap2 sec1".to_string());
+
+        let content = book.combine_content(&ids).unwrap();
+        assert_eq!(
+            content,
+            "hello from sec1\nhello from sec2\nhello from chap2 sec1".to_string()
+        )
+    }
+    /*
+
+    #[ignore]
+    #[test]
+    fn compile_book_api_works() {
+        // test fails because content is empty
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path().join("test_book");
+        let req = Json(NewBookRequest {
+            name: "test_book".to_string(),
+            location: &path,
+            genre: Genre::Fantasy,
+        });
+
+        new_book(req).unwrap();
+
+        let ids = vec![
+            "0ad0fd5d1787ebf9465fb46c743d35eb6b9ab783"
+        ];
+
+        let compile_request = Json(CompileBookRequest {
+            location: &path,
+            ids
+        });
+
+        assert!(compile_book(compile_request).is_ok());
+    }
+    */
 }

@@ -1,19 +1,23 @@
-#[macro_use] extern crate serde_derive;
+#[macro_use]
+extern crate serde_derive;
 //#[cfg_attr(test, macro_use)] extern crate serde_json;
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 mod book;
+mod bookcompiler;
 mod error;
+mod github;
 mod macros;
 mod vcs;
-mod github;
 
+use crate::book::*;
+use crate::bookcompiler::*;
+use crate::github::*;
+use crate::vcs::*;
+use actix::prelude::*;
 use actix_web::middleware::{cors::Cors, Logger};
 use actix_web::{http, server, App};
-//use std::path::Path;
-use crate::book::*;
-use crate::vcs::*;
-use crate::github::*;
 
 //TODO: impl my own json type for better error msg on Deserialize error
 
@@ -21,8 +25,18 @@ use crate::github::*;
 fn main() {
     std::env::set_var("RUST_LOG", "actix_web=info");
     env_logger::init();
-    server::new(|| {
-        App::new().middleware(Logger::default()).configure(|app| {
+
+    let _sys = actix::System::new("collabook-core");
+    let addr = SyncArbiter::start(1, || BookCompiler {
+        pdf_app: wkhtmltopdf::PdfApplication::new().unwrap(),
+    });
+
+    server::new(move || {
+        App::with_state(AppState {
+            compiler: addr.clone(),
+        })
+        .middleware(Logger::default())
+        .configure(|app| {
             Cors::for_app(app)
                 .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
                 .send_wildcard()
@@ -86,16 +100,21 @@ fn main() {
                     r.method(http::Method::POST).with(clone_request)
                 })
                 .resource("/hubcreate", |r| {
-                    r.method(http::Method::POST).with(github_create_repo_request)
+                    r.method(http::Method::POST)
+                        .with(github_create_repo_request)
                 })
                 .resource("/hubdelete", |r| {
-                    r.method(http::Method::POST).with(github_delete_repo_request)
+                    r.method(http::Method::POST)
+                        .with(github_delete_repo_request)
                 })
                 .resource("/hubfork", |r| {
                     r.method(http::Method::POST).with(github_fork_repo_request)
                 })
                 .resource("/syncfork", |r| {
                     r.method(http::Method::POST).with(sync_fork_request)
+                })
+                .resource("/compile", |r| {
+                    r.method(http::Method::POST).with(compile_book)
                 })
                 .register()
         })

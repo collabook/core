@@ -257,21 +257,26 @@ impl BookRepo {
         Ok(())
     }
 
-    fn _sync_fork(&self, origin: &mut Remote, upstream: &mut Remote, branches: &[String]) -> Result<(), MyError> {
+    fn _sync_fork(
+        &self,
+        origin: &mut Remote,
+        upstream: &mut Remote,
+        branches: &[String],
+    ) -> Result<(), MyError> {
         let _ = upstream.fetch(&[], None, None)?;
 
         let mut push_opts = PushOptions::new();
         let mut remote_callbacks = RemoteCallbacks::new();
         remote_callbacks.credentials(get_credentials_callback);
         push_opts.remote_callbacks(remote_callbacks);
-        
+
         let rm_name = upstream.name().ok_or("Remote name not valid")?;
         let mut refs: Vec<String> = Vec::new();
 
         for branch in branches.iter() {
             let spec = format!("refs/remotes/{0}/{1}:refs/heads/{1}", rm_name, branch);
             refs.push(spec);
-        };
+        }
         let refs_specs: Vec<&str> = refs.iter().map(String::as_str).collect();
         let _ = origin.push(refs_specs.as_slice(), Some(&mut push_opts))?;
         Ok(())
@@ -438,7 +443,7 @@ pub fn pull_request(info: Json<PullRequest>) -> Result<impl Responder, MyError> 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CloneRequest<P: AsRef<Path> = PathBuf, S: AsRef<str> = String> {
     location: P,
-    url: S
+    url: S,
 }
 
 pub fn clone_request(info: Json<CloneRequest>) -> Result<impl Responder, MyError> {
@@ -446,7 +451,9 @@ pub fn clone_request(info: Json<CloneRequest>) -> Result<impl Responder, MyError
     remote_callbacks.credentials(get_credentials_callback);
     let mut ft_opts = git2::FetchOptions::new();
     ft_opts.remote_callbacks(remote_callbacks);
-    let _ = git2::build::RepoBuilder::new().fetch_options(ft_opts).clone(&info.url, &info.location)?;
+    let _ = git2::build::RepoBuilder::new()
+        .fetch_options(ft_opts)
+        .clone(&info.url, &info.location)?;
     Ok(HttpResponse::Ok())
 }
 
@@ -455,7 +462,7 @@ pub struct SyncForkRequest {
     origin: String,
     upstream: String,
     branches: Vec<String>,
-    location: PathBuf
+    location: PathBuf,
 }
 
 pub fn sync_fork_request(info: Json<SyncForkRequest>) -> Result<impl Responder, MyError> {
@@ -856,6 +863,7 @@ mod tests {
         let repo = BookRepo::from_location(&path).unwrap();
         let mut remote = repo.find_remote("origin").unwrap();
         let mut upstream = repo.find_remote("upstream").unwrap();
-        repo._sync_fork(&mut remote, &mut upstream, &["master".to_string()]).unwrap();
+        repo._sync_fork(&mut remote, &mut upstream, &["master".to_string()])
+            .unwrap();
     }
 }

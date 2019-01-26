@@ -119,7 +119,6 @@ impl<A: AccessToken, S: HttpSend> GithubClient<A, S> {
             Err(MyError(error.message))
         }
     }
-
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -254,7 +253,8 @@ mod tests {
             r#"{
             "message": "Some error message",
             "documentation_url": "url"
-            }"#);
+            }"#,
+        );
 
         let resp_err = client.fork_repo("owner", "repo").unwrap_err();
         assert_eq!(resp_err, MyError("Some error message".to_string()));

@@ -1,6 +1,6 @@
 use actix_web::HttpResponse;
-use std::fmt;
 use std::cmp;
+use std::fmt;
 
 #[derive(Debug)]
 pub struct MyError(pub String);
@@ -90,5 +90,11 @@ impl From<reqwest::Error> for MyError {
 impl cmp::PartialEq for MyError {
     fn eq(&self, other: &MyError) -> bool {
         self.0 == other.0
+    }
+}
+
+impl From<wkhtmltopdf::Error> for MyError {
+    fn from(e: wkhtmltopdf::Error) -> MyError {
+        MyError(e.to_string())
     }
 }
