@@ -135,6 +135,8 @@ impl BookRepo {
         Ok(remotes)
     }
 
+    //TODO: Returns an error if no commits have been created
+    //maybe we should create an initial commit on book creation
     fn _log(&self) -> Result<Vec<GitLog>, MyError> {
         let mut walk = self.revwalk()?;
 
@@ -422,6 +424,20 @@ pub fn rebase_request(info: Json<RebaseRequest>) -> Result<impl Responder, MyErr
     Ok(HttpResponse::Ok())
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MergeBranchRequest {
+    location: PathBuf,
+    name: String,
+}
+
+pub fn merge_branch(info: Json<MergeBranchRequest>) -> Result<impl Responder, MyError> {
+    let book = BookRepo::from_location(&info.location)?;
+    let current_branch = book._current_branch()?;
+    let upstream_branch = book.find_branch(&info.name, BranchType::Local)?;
+    book._rebase(&current_branch, &upstream_branch)?;
+    Ok(HttpResponse::Ok())
+}
+
 pub fn rebase_continue_request(info: Json<BookLocation>) -> Result<impl Responder, MyError> {
     let repo = BookRepo::from_location(&info.location)?;
     repo._rebase_continue()?;
@@ -696,6 +712,45 @@ mod tests {
         repo._switch_branch("topic").unwrap();
 
         assert_eq!(repo._current_branch().unwrap().name(), Ok(Some("topic")));
+    }
+
+    #[test]
+    fn test_merge_branch_works() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path();
+
+        let repo = BookRepo::new(path).unwrap();
+
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"some text").unwrap();
+        }
+
+        let author = Author {
+            name: "name".to_string(),
+            email: "email".to_string(),
+            auth: AuthType::SSHAgent,
+            token: "token".to_string(),
+        };
+
+        let oid = repo._commit("test commit", &author).unwrap();
+        repo.find_commit(oid).unwrap();
+        let master_branch = repo._current_branch().unwrap();
+
+        let topic_branch = repo._create_branch("topic").unwrap();
+        repo._switch_branch("topic").unwrap();
+
+        {
+            let mut f = fs::File::create(&path.join("test.txt")).unwrap();
+            f.write_all(b"changes made on topic branch").unwrap();
+            repo._commit("test commit2", &author).unwrap();
+        }
+
+        repo._switch_branch("master").unwrap();
+        repo._rebase(&master_branch, &topic_branch).unwrap();
+
+        let content = fs::read_to_string(path.join("test.txt")).unwrap();
+        assert_eq!(content, "changes made on topic branch");
     }
 
     #[test]
