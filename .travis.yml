@@ -8,11 +8,10 @@ rust:
 
 cache: cargo
 
+before_install:
+  - sudo apt-get install -y wkhtmltopdf
+
 script:
-  # Install wkhtmltopdf
-  - wget https://downloads.wkhtmltopdf.org/0.12/0.12.3/wkhtmltox-0.12.3_linux-generic-amd64.tar.xz
-  - tar xf wkhtmltox-0.12.3_linux-generic-amd64.tar.xz
-  - sudo mv wkhtmltox/bin/wkhtmltopdf /usr/local/bin
   - cargo test
 
 before_deploy:
