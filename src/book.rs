@@ -15,27 +15,30 @@ use std::path::PathBuf;
 use walkdir::WalkDir;
 
 #[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct Book {
     files: HashMap<String, File>,
     location: PathBuf,
     name: String,
+    book_type: BookType,
     remotes: Vec<String>,
     branches: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-enum Genre {
+#[derive(Serialize, Deserialize, Clone, Debug)]
+enum BookType {
     Fantasy,
     Fiction,
-    Academic,
+    Latex,
 }
 
 #[allow(unused)]
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct NewBookRequest<T: AsRef<Path>> {
     location: T,
     name: String,
-    genre: Genre,
+    book_type: BookType,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -114,7 +117,12 @@ impl File {
         let rel_path_str2 = rel_path_str.replace("\\", "/"); //needed in windows as windows uses `\` instead of `/` on windows
         let id = Sha1::from(rel_path_str2).digest().to_string();
         //TODO: create synopsis file if not present
-        let mut syn_file = fs::File::open(&book.as_ref().join(".collabook/synopsis").join(&id))?;
+        let mut syn_file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&book.as_ref().join(".collabook/synopsis").join(&id))?;
+        //let mut syn_file = fs::File::open(&book.as_ref().join(".collabook/synopsis").join(&id))?;
         let mut synopsis = String::new();
         syn_file.read_to_string(&mut synopsis)?;
 
@@ -164,10 +172,19 @@ impl Book {
         let remotes = repo._get_remotes()?;
         let branches = repo._get_branches()?;
 
+        fs::create_dir_all(&new_book_req.location.as_ref().join(".collabook"))?;
+        let mut f = fs::File::create(&new_book_req.location.as_ref().join(".collabook/config.toml"))?;
+
+        match new_book_req.book_type {
+            BookType::Latex => f.write_all(b"book_type = latex")?,
+            _ => f.write_all(b"book_type = fiction")?
+        }
+
         Ok(Book {
             files,
             location: new_book_req.location.as_ref().to_path_buf(),
             name: new_book_req.name.to_string(),
+            book_type: new_book_req.book_type.clone(),
             remotes,
             branches,
         })
@@ -227,6 +244,7 @@ impl Book {
             files,
             location: location.to_path_buf(),
             name: book_name.to_string(),
+            book_type: BookType::Latex,
             remotes,
             branches,
         })
@@ -522,7 +540,7 @@ mod tests {
         let req = Json(NewBookRequest {
             name: "test_book".to_string(),
             location: &path,
-            genre: Genre::Fantasy,
+            book_type: BookType::Fantasy,
         });
         new_book(req).unwrap();
         assert_eq!(path.join("Book/Chap1/Sec1").exists(), true);
@@ -614,7 +632,7 @@ mod tests {
         let req = Json(NewBookRequest {
             name: "test_book".to_string(),
             location: &path,
-            genre: Genre::Fantasy,
+            book_type: BookType::Fantasy,
         });
         let book = Book::new(&req).unwrap();
         book.compile("<p>some content</p>").unwrap();
@@ -650,6 +668,7 @@ mod tests {
             files,
             location: path,
             name: "test_book".to_string(),
+            book_type: BookType::Fiction,
             remotes,
             branches,
         };
@@ -691,7 +710,7 @@ mod tests {
         let req = Json(NewBookRequest {
             name: "test_book".to_string(),
             location: &path,
-            genre: Genre::Fantasy,
+            book_type: BookType::Fantasy,
         });
 
         new_book(req).unwrap();
@@ -708,4 +727,23 @@ mod tests {
         assert!(compile_book(compile_request).is_ok());
     }
     */
+
+    #[test]
+    fn new_book_creates_correct_config_file() {
+        let temp_dir = TempDir::new("test_dir").unwrap();
+        let path = temp_dir.path().join("test_book");
+        let req = Json(NewBookRequest {
+            name: "test_book".to_string(),
+            location: &path,
+            book_type: BookType::Latex,
+        });
+        new_book(req).unwrap();
+        assert_eq!(path.join(".collabook/config.toml").exists(), true);
+
+        let mut content = String::new();
+        let mut f = fs::File::open(path.join(".collabook/config.toml")).unwrap();
+        f.read_to_string(&mut content).unwrap();
+        assert_eq!(content, "book_type = latex");
+
+    }
 }
