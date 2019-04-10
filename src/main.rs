@@ -10,6 +10,7 @@ mod error;
 mod github;
 mod macros;
 mod vcs;
+mod templates;
 
 use crate::book::*;
 use crate::bookcompiler::*;
