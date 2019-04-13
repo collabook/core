@@ -143,7 +143,16 @@ fn is_hidden(entry: &walkdir::DirEntry) -> bool {
 
 impl Book {
     fn new<P: AsRef<Path>>(new_book_req: &NewBookRequest<P>) -> Result<Self, MyError> {
+        /// This function handles the new book requests from the front end.
+        /// The stuct `NewBookRequest` has fields:
+        /// 1) location to save Book
+        /// 2) name of the Book
+        /// 3) book type
+        /// Steps involved:
+        /// 1) Create a HashMap mapping file ids and file objects
         let mut files = HashMap::new();
+
+        /// 2) Create File objects
         let root = File::new(&new_book_req.name, "", "0", true, false);
         let book = File::new("Book", "Book", &root.id, true, false);
         let chap1 = File::new("Chap1", "Book/Chap1", &book.id, true, false);
@@ -151,6 +160,8 @@ impl Book {
         let research = File::new("Research", "Research", &root.id, true, true);
         let chars = File::new("Chars", "Research/Chars", &research.id, false, true);
         let world = File::new("World", "Research/World", &research.id, false, true);
+
+        /// 3) Insert files into HashMap
         files.insert(root.id.clone(), root);
         files.insert(book.id.clone(), book);
         files.insert(chap1.id.clone(), chap1);
@@ -160,6 +171,7 @@ impl Book {
         files.insert(world.id.clone(), world);
 
         //should this be done here or using other request?
+        /// 4) Initialize repository inside the book directory
         let repo = BookRepo::new(&new_book_req.location)?;
         let remotes = repo._get_remotes()?;
         let branches = repo._get_branches()?;
@@ -193,12 +205,16 @@ impl Book {
     }
 
     pub fn open(location: &Path) -> Result<Self, MyError> {
+        /// Function handles opening of previously created books.
+        /// Parameter `location` indicates the location of the book to open.
+        /// Steps:
         //TODO: should ignore target folder
-
+        /// 1) Create Hashmap for storing files
         let mut files: HashMap<String, File> = HashMap::new();
 
         //check if is a collabook directory
         //
+        /// 2) Check if location is actully a Collabook directory or Not
         if !&location.join(".collabook").exists() {
             Err("Not a Collabook directory".to_string())?
         }
@@ -209,6 +225,7 @@ impl Book {
             .ok_or("Filename contains invalid utf-8")?;
 
         //read files from disk
+        /// 3) Recursively walk directories of the book adding files to the hashmap
         for entry in WalkDir::new(&location)
             .into_iter()
             .filter_entry(|e| !is_hidden(e))
@@ -219,6 +236,7 @@ impl Book {
         }
 
         //TODO: this should be provided as a parameter.. again not sure.
+        /// 4) Get all remotes, branches of the book and send response to frontend
         let repo = BookRepo::from_location(&location)?;
         let remotes = repo._get_remotes()?;
         let branches = repo._get_branches()?;
@@ -292,13 +310,25 @@ pub struct NewFileRequest {
 }
 
 pub fn new_file(info: Json<NewFileRequest>) -> Result<impl Responder, MyError> {
+    /// Handles new file creation requests
+    /// `NewFileRequest` struct contains:
+    /// 1) Parent folder of the new file to be created
+    /// 2) Name of the file
+    /// 3) location of the book
+    /// 4) Parent directories relative path
+    /// Steps involved
+    ///
+    ///
+    /// 1) Calculate the SHA1 id from the relative path of the new file
     let rel_path = &info.parent_rel_path.join(&info.name);
     let rel_path_str = rel_path.to_str().ok_or("Filename contains invalid utf-8")?;
     let id = Sha1::from(rel_path_str).digest().to_string();
 
+    /// 2) Check if file is part of the reseach content
     let is_research = rel_path.to_string_lossy().contains("Research");
 
     let content: Option<String>;
+    /// 4) Create a synopsis file for the new file
     if info.is_folder {
         fs::create_dir_all(&info.location.join(&rel_path))?;
         content = None;
@@ -306,6 +336,7 @@ pub fn new_file(info: Json<NewFileRequest>) -> Result<impl Responder, MyError> {
         fs::File::create(&info.location.join(&rel_path))?;
         content = Some("".to_string());
     }
+    /// 3) Create the file
     fs::File::create(&info.location.join(".collabook/synopsis").join(&id))?;
     let f = File {
         id,
@@ -319,6 +350,7 @@ pub fn new_file(info: Json<NewFileRequest>) -> Result<impl Responder, MyError> {
         synopsis: "".to_string(),
     };
     let ser_f = serde_json::to_string(&f)?;
+    /// 5) Send the file info to front end
     Ok(HttpResponse::Ok().body(ser_f))
 }
 
@@ -400,6 +432,7 @@ impl crate::github::AccessToken for Author {
 }
 
 impl Author {
+    /// These functions are used for saving and loading config from and to disk respectively
     pub fn read_from_disk() -> Result<Self, MyError> {
         let path = app_dirs::app_root(AppDataType::UserConfig, &APP_INFO)?;
         let mut file = fs::File::open(path.join("Config.toml"))?;

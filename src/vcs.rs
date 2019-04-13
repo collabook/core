@@ -169,10 +169,19 @@ impl BookRepo {
 
     fn _checkout_commit(&self, oid: Oid) -> Result<(), MyError> {
         // let commit_oid = git2::Oid::from_str(oid)?; the request handler should perform this
+        /// Function is used for switching between different revisions/versions of the book.
+        /// `Oid` is the commit id the user wants to switch to
+
+        /// Steps involved:
+        /// 1) Find the commit object using the id
         let commit = self.find_commit(oid)?;
+
+        /// 2) Find the tree(file hierarchy snapshot) attached to the commit
         let tree = commit.tree()?.into_object();
         let mut checkout_builder = CheckoutBuilder::new();
         checkout_builder.force().use_ours(true);
+
+        /// 3) Construct the book using that tree
         self.checkout_tree(&tree, Some(&mut checkout_builder))?;
         Ok(())
     }
@@ -231,29 +240,47 @@ impl BookRepo {
     }
 
     fn _pull(&self, from: impl AsRef<str>) -> Result<(), MyError> {
+        /// This is an internal function for pulling changes from remote onto
+        /// local machine. The parameter `from` indicates the remote from which
+        /// the changes must be pulled.
+
+        /// Steps invovled
+        /// 1) Get the current branch name
         let branch = self._current_branch()?;
         let branch_name = branch.name()?.ok_or("Could not get branch name")?;
 
+        /// 2) Find the Remote object and fetch changes
         self.find_remote(from.as_ref())?
             .fetch(&[&branch_name], None, None)?;
 
+        /// 3) Create ref string for pulling
+        /// Ref string is part of the git protocol that denotes the mapping between
+        /// local and remote branches
         let upstream_ref_str = format!("refs/remotes/{}/{}", from.as_ref(), branch_name);
         let upstream_ref = self.find_reference(&upstream_ref_str)?;
         let upstream = Branch::wrap(upstream_ref);
 
+        /// 5) Merge changes to current branch
         self._rebase(&branch, &upstream)?;
         Ok(())
     }
 
     fn _push(&self, branch: &Branch, remote: &mut Remote) -> Result<(), MyError> {
+        /// This function is responsible for pushing local changes to remote Repository
+        /// The parameter `branch` indicates the branch to push and the parameter `remote`
+        /// indicates the remote to push to.
+        /// Steps involved:
+        /// 1) Get the branch name from the branch object
         let branch_name = branch.name()?.ok_or("Branch name is invalid")?;
         let mut push_opts = PushOptions::new();
         let mut remote_callbacks = RemoteCallbacks::new();
         remote_callbacks.credentials(get_credentials_callback);
         push_opts.remote_callbacks(remote_callbacks);
 
+        /// 2) Create the ref string for pushing
         let push_ref = format!("refs/heads/{0}:refs/heads/{0}", branch_name);
 
+        /// 3) Call push on the remote object
         remote.push(&[&push_ref], Some(&mut push_opts))?;
 
         Ok(())
@@ -290,9 +317,18 @@ fn get_credentials_callback(
     user_from_url: Option<&str>,
     _cred: git2::CredentialType,
 ) -> Result<git2::Cred, git2::Error> {
+    /// This function is used everytime authenticating is required with remote git server while pushing
+    /// The input parameters are username, url of remote, and type of authentication
+    /// Steps involved:
+    /// 1) Get user info from config file (created when user opens Collabook for the first time
     let user: Author =
         Author::read_from_disk().map_err(|_| git2::Error::from_str("Config file not found"))?;
 
+    /// 2)
+    /// a)If authentication type is plain text: Username and password will be in config file
+    /// b)If authentication type is SSHAgent: A request is sent to the SSHAgent running on the
+    /// users machine for the private key matching the username
+    /// c) It authentication type is SSHPath: The key is read into memory from location
     match user.auth {
         AuthType::Plain { user, pass } => git2::Cred::userpass_plaintext(&user, &pass),
         AuthType::SSHAgent => git2::Cred::ssh_key_from_agent(user_from_url.unwrap_or("git")),
